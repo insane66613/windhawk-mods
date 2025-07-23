@@ -104,6 +104,8 @@ std::atomic<bool> g_explorerPatcherInitialized;
 std::mutex g_initMutex;
 std::mutex g_hookMutex;
 
+static HMODULE g_taskbarModule = nullptr;
+
 using CTaskListWnd_HandleClick_t = long(WINAPI*)(
     LPVOID pThis,
     LPVOID,  // ITaskGroup *
@@ -627,13 +629,13 @@ bool HookTaskbarSymbols() {
             return false;
         }
     } else {
-        HMODULE taskbarModule = LoadLibrary(L"taskbar.dll");
-        if (!taskbarModule) {
+        g_taskbarModule = LoadLibrary(L"taskbar.dll");
+        if (!g_taskbarModule) {
             Wh_Log(L"Couldn't load taskbar.dll");
             return false;
         }
 
-        if (!HookSymbols(taskbarModule, symbolHooks, ARRAYSIZE(symbolHooks))) {
+        if (!HookSymbols(g_taskbarModule, symbolHooks, ARRAYSIZE(symbolHooks))) {
             Wh_Log(L"HookSymbols failed");
             return false;
         }
@@ -716,6 +718,14 @@ void Wh_ModAfterInit() {
 
 void Wh_ModUninit() {
     Wh_Log(L">");
+
+    // TODO: Unhook any remaining hooks if the hook framework requires explicit unhooking
+
+    // Free the taskbar.dll module if it was loaded
+    if (g_taskbarModule) {
+        FreeLibrary(g_taskbarModule);
+        g_taskbarModule = nullptr;
+    }
 }
 
 BOOL Wh_ModSettingsChanged(BOOL* bReload) {
