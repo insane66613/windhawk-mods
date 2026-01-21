@@ -8,7 +8,6 @@
 // @license         MIT
 // @architecture    x86
 // @architecture    x86-64
-// @architecture    arm64
 // @include         windhawk.exe
 // @compilerOptions -lgdi32 -luxtheme -lole32 -loleaut32 -luuid
 // ==/WindhawkMod==
