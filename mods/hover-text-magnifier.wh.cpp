@@ -1197,6 +1197,7 @@ BOOL Wh_ModInit() {
         const WCHAR* processName = wcsrchr(processPath, L'\\');
         processName = processName ? processName + 1 : processPath;
         if (_wcsicmp(processName, L"windhawk.exe") != 0) {
+            // Quietly exit for non-Windhawk processes to prevent noise
             return FALSE;
         }
     }
@@ -1243,13 +1244,17 @@ BOOL Wh_ModInit() {
         }
 
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
-            Wh_Log(L"Tool mod already running (%s)", WH_MOD_ID);
+            // This happens during mod reload if the old process hasn't exited yet.
+            // Log it so we know why we are terminating.
+            Wh_Log(L"Tool mod already running (Mutex exists), exiting new instance.");
             ExitProcess(1);
         }
 
         if (!WhTool_ModInit()) {
+            Wh_Log(L"WhTool_ModInit failed");
             ExitProcess(1);
         }
+
 
         IMAGE_DOS_HEADER* dosHeader =
             (IMAGE_DOS_HEADER*)GetModuleHandleW(nullptr);
