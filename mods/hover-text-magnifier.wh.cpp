@@ -81,50 +81,50 @@ Notes:
   $name: Border width (px)
 
 - textPointSize: 26
-    $name: Text size (pt)
+  $name: Text size (pt)
 
 - fontName: Segoe UI
-    $name: Font name
+  $name: Font name
 
 - fontWeight: 600
-    $name: Font weight (100-900)
+  $name: Font weight (100-900)
 
 - textColor: 0xF5F5F5
-    $name: Text color (0xRRGGBB)
+  $name: Text color (0xRRGGBB)
 
 - textAlign: left
-    $name: Text alignment
-    $options:
-        - left: Left
-        - center: Center
-        - right: Right
+  $name: Text alignment
+  $options:
+    - left: Left
+    - center: Center
+    - right: Right
 
 - maxLines: 4
-    $name: Max lines
+  $name: Max lines
 
 - textShadow: true
-    $name: Text shadow
+  $name: Text shadow
 
 - shadowOffsetX: 1
-    $name: Shadow offset X (px)
+  $name: Shadow offset X (px)
 
 - shadowOffsetY: 1
-    $name: Shadow offset Y (px)
+  $name: Shadow offset Y (px)
 
 - shadowColor: 0x000000
-    $name: Shadow color (0xRRGGBB)
+  $name: Shadow color (0xRRGGBB)
 
 - outlineWidth: 0
-    $name: Outline width (px)
+  $name: Outline width (px)
 
 - outlineColor: 0x000000
-    $name: Outline color (0xRRGGBB)
+  $name: Outline color (0xRRGGBB)
 
 - backgroundColor: 0x141414
-    $name: Background color (0xRRGGBB)
+  $name: Background color (0xRRGGBB)
 
 - borderColor: 0x5A5A5A
-    $name: Border color (0xRRGGBB)
+  $name: Border color (0xRRGGBB)
 
 - padding: 18
   $name: Text padding (px)
@@ -142,7 +142,7 @@ Notes:
   $name: Bubble opacity (0-255)
 
 - autoHideDelayMs: 0
-    $name: Auto-hide delay (ms)
+  $name: Auto-hide delay (ms)
 */
 // ==/WindhawkModSettings==
 
@@ -271,6 +271,12 @@ struct RuntimeState {
     int effectiveBorderWidth = 1;
     int effectivePadding = 18;
 
+    // Cached Layout
+    std::wstring cachedFittedText;
+    std::wstring lastFittedTextSource;
+    int lastFittedWidth = 0;
+    int lastFittedHeight = 0;
+
     // Cached GDI objects
     HFONT hFont = nullptr;
     HBRUSH hBgBrush = nullptr;
@@ -350,6 +356,7 @@ static void FreeGraphicsResources() {
 
 static void UpdateGraphicsResources() {
     FreeGraphicsResources();
+    g.lastFittedTextSource.clear();
 
     LOGFONTW lf{};
     lf.lfHeight = -RoundToInt(g.cfg.textPointSize * g.dpiScale * 96.0f / 72.0f); // Approximate point-to-pixel
@@ -803,14 +810,28 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 int maxHeight = std::max(1, (g.effectivePadding * 2) + (g.cfg.maxLines * lineHeight));
                 int availHeight = std::max(1, (int)(tr.bottom - tr.top));
                 int targetHeight = std::min(availHeight, maxHeight);
+                int targetWidth = std::max(1, (int)(tr.right - tr.left));
+                std::wstring text;
 
-                std::wstring text = FitTextToHeight(
-                    hdc,
-                    g.currentText,
-                    std::max(1, (int)(tr.right - tr.left)),
-                    targetHeight,
-                    GetTextAlignFlags()
-                );
+                if (g.currentText == g.lastFittedTextSource && 
+                    targetWidth == g.lastFittedWidth &&
+                    targetHeight == g.lastFittedHeight &&
+                    !g.lastFittedTextSource.empty()) 
+                {
+                    text = g.cachedFittedText;
+                } else {
+                    text = FitTextToHeight(
+                        hdc,
+                        g.currentText,
+                        targetWidth,
+                        targetHeight,
+                        GetTextAlignFlags()
+                    );
+                    g.lastFittedTextSource = g.currentText;
+                    g.lastFittedWidth = targetWidth;
+                    g.lastFittedHeight = targetHeight;
+                    g.cachedFittedText = text;
+                }
 
                 UINT alignFlags = GetTextAlignFlags();
 
@@ -965,7 +986,7 @@ static void TickUpdate() {
     std::wstring text;
 
     if (wantText && g.uiaReady) {
-        if (nowTick - g.lastUiaQueryTick >= (DWORD)g.cfg.uiaQueryMinIntervalMs || pt.x != g.lastCursor.x || pt.y != g.lastCursor.y) {
+        if (nowTick - g.lastUiaQueryTick >= (DWORD)g.cfg.uiaQueryMinIntervalMs) {
             g.lastUiaQueryTick = nowTick;
             haveText = TryExtractTextAtPoint(pt, text);
         } else {
