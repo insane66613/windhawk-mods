@@ -382,7 +382,8 @@ static void UpdateGraphicsResources() {
 static float GetDpiScaleForPoint(POINT pt) {
     typedef HRESULT(WINAPI* GetDpiForMonitor_t)(HMONITOR, int, UINT*, UINT*);
     static GetDpiForMonitor_t pGetDpiForMonitor = []() -> GetDpiForMonitor_t {
-        HMODULE hShcore = LoadLibraryW(L"Shcore.dll");
+        HMODULE hShcore = GetModuleHandleW(L"Shcore.dll");
+        if (!hShcore) hShcore = LoadLibraryW(L"Shcore.dll");
         if (!hShcore) return nullptr;
         return (GetDpiForMonitor_t)GetProcAddress(hShcore, "GetDpiForMonitor");
     }();
@@ -664,6 +665,10 @@ static bool InitUIA() {
     hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_IUIAutomation, (void**)&g.uia);
     if (FAILED(hr) || !g.uia) {
         g.uiaReady = false;
+        if (g.comInitedHere) {
+            CoUninitialize();
+            g.comInitedHere = false;
+        }
         return false;
     }
 
@@ -855,11 +860,11 @@ static void PositionBubbleNearCursor(HWND hwnd, POINT pt, int w, int h) {
     RECT work = GetWorkAreaForPoint(pt);
     int workL = (int)work.left, workT = (int)work.top, workR = (int)work.right, workB = (int)work.bottom;
 
-    int x = pt.x + g.cfg.offsetX;
-    int y = pt.y + g.cfg.offsetY;
+    int x = pt.x + g.effectiveOffsetX;
+    int y = pt.y + g.effectiveOffsetY;
 
-    if (x + w > workR) x = pt.x - g.cfg.offsetX - w;
-    if (y + h > workB) y = pt.y - g.cfg.offsetY - h;
+    if (x + w > workR) x = pt.x - g.effectiveOffsetX - w;
+    if (y + h > workB) y = pt.y - g.effectiveOffsetY - h;
 
     x = std::max(workL, std::min(x, workR - w));
     y = std::max(workT, std::min(y, workB - h));
@@ -1255,7 +1260,7 @@ static void TickUpdate() {
 }
 
 static void WorkerThread() {
-    g.threadId = GetCurrentThreadId();
+    // g.threadId = GetCurrentThreadId();
     // Wh_Log(L"WorkerThread: Started. ThreadId=%u", g.threadId);
 
     MSG msg;
@@ -1280,7 +1285,7 @@ static void WorkerThread() {
 
     if (!CreateWindows()) {
         Wh_Log(L"WorkerThread: CreateWindows failed. Exiting.");
-        g.running = false;
+        // g.running = false;
         UninitMagnification();
         UninitUIA();
         return;
