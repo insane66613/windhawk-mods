@@ -537,6 +537,9 @@ static void LoadSettings() {
     g.cfg.opacity = ClampInt(Wh_GetIntSetting(L"opacity"), 40, 255);
     g.cfg.autoHideDelayMs = ClampInt(Wh_GetIntSetting(L"autoHideDelayMs"), 0, 3000);
 
+    Wh_Log(L"Settings Loaded: Trigger=%d, Mode=%d, Opacity=%d, Font=%s", 
+        (int)g.cfg.triggerKey, (int)g.cfg.mode, g.cfg.opacity, g.cfg.fontName.c_str());
+
     // Refresh graphics resources since settings (colors/fonts) changed
     // We need a valid DPI scale; if not set yet, guess 1.0 or wait until first paint.
     // Ideally we update them on TickUpdate/sizing, but fonts/colors only change here.
@@ -980,6 +983,12 @@ static void TickUpdate() {
     bool triggerDown = IsTriggerDown(g.cfg.triggerKey);
     DWORD nowTick = GetTickCount();
 
+    static bool dbgWasTriggerDown = false;
+    if (triggerDown != dbgWasTriggerDown) {
+        Wh_Log(L"TickUpdate: Trigger %s (Key: %d)", triggerDown ? L"DOWN" : L"UP", (int)g.cfg.triggerKey);
+        dbgWasTriggerDown = triggerDown;
+    }
+
     if (!triggerDown) {
         if (g.cfg.autoHideDelayMs > 0) {
             if (g.triggerWasDown) {
@@ -1025,6 +1034,15 @@ static void TickUpdate() {
         if (nowTick - g.lastUiaQueryTick >= (DWORD)g.cfg.uiaQueryMinIntervalMs) {
             g.lastUiaQueryTick = nowTick;
             haveText = TryExtractTextAtPoint(pt, text);
+            static bool dbgLoggedNoText = false;
+            if (haveText) {
+                // Throttle success logs, logging every time is annoying, but maybe log "Found text" once per trigger session?
+                // For now, let's keep it quiet unless failure
+                dbgLoggedNoText = false;
+            } else if (!dbgLoggedNoText && triggerDown) {
+                Wh_Log(L"TickUpdate: No text found via UIA.");
+                dbgLoggedNoText = true;
+            }
         } else {
             haveText = g.showingText && !g.currentText.empty();
             text = g.currentText;
@@ -1071,6 +1089,7 @@ static void TickUpdate() {
         if (textChanged || modeChanged) {
             InvalidateRect(g.hwndHost, nullptr, TRUE);
             UpdateWindow(g.hwndHost);
+            Wh_Log(L"Showing Text: %s", text.substr(0, std::min<size_t>(text.size(), 30)).c_str());
         }
     } else if (showMag) {
         ShowWindow(g.hwndMag, SW_SHOWNA);
@@ -1085,6 +1104,7 @@ static void TickUpdate() {
         if (modeChanged) {
             InvalidateRect(g.hwndHost, nullptr, TRUE);
             UpdateWindow(g.hwndHost);
+            Wh_Log(L"Showing Magnifier");
         }
     } else {
         EnsureVisibility(false);
@@ -1099,7 +1119,6 @@ static void WorkerThread() {
     PeekMessage(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE); // ensure queue exists
 
     LoadSettings();
-    Wh_Log(L"WorkerThread: Settings loaded.");
 
     if (!InitUIA()) {
         Wh_Log(L"WorkerThread: InitUIA failed (or RPC_E_CHANGED_MODE). Text extraction may fail.");
@@ -1116,6 +1135,7 @@ static void WorkerThread() {
         UninitUIA();
         return;
     }
+    Wh_Log(L"WorkerThread: Window created. HWNDHost=%p", g.hwndHost);
 
     Wh_Log(L"WorkerThread: Initialization complete. Entering message loop.");
     g.running = true;
