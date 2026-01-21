@@ -726,6 +726,51 @@ static void ApplyRoundedRegion(HWND hwnd, int w, int h, int radius) {
     }
 }
 
+static SIZE MeasureContentSize(const std::wstring& text, int maxW, int maxH) {
+    SIZE sz{ std::max(100, g.effectiveCornerRadius * 2 + 20), std::max(40, g.effectiveCornerRadius * 2 + 20) };
+    
+    if (text.empty() || !g.hFont) return sz;
+
+    HDC hdc = CreateCompatibleDC(nullptr);
+    if (!hdc) return sz;
+
+    HGDIOBJ oldFont = SelectObject(hdc, g.hFont);
+    
+    // 1. Measure single line height for maxLines calc
+    RECT rcCalc = {0,0,0,0};
+    DrawTextW(hdc, L"Ay", -1, &rcCalc, DT_CALCRECT | DT_NOPREFIX);
+    int lineHeight = rcCalc.bottom - rcCalc.top;
+    
+    // 2. Measure full text block with wrapping
+    int availW = std::max(1, maxW - g.effectivePadding * 2);
+    rcCalc = {0, 0, availW, 0};
+    DrawTextW(hdc, text.c_str(), (int)text.size(), &rcCalc, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX);
+
+    int textW = rcCalc.right - rcCalc.left;
+    int textH = rcCalc.bottom - rcCalc.top;
+
+    // 3. Constrain height by maxLines
+    if (g.cfg.maxLines > 0) {
+        int maxTextH = g.cfg.maxLines * lineHeight;
+        if (textH > maxTextH) textH = maxTextH;
+    }
+
+    SelectObject(hdc, oldFont);
+    DeleteDC(hdc);
+
+    sz.cx = textW + g.effectivePadding * 2;
+    sz.cy = textH + g.effectivePadding * 2;
+
+    int minDim = g.effectiveCornerRadius * 2;
+    if (sz.cx < minDim) sz.cx = minDim;
+    if (sz.cy < minDim) sz.cy = minDim;
+
+    if (sz.cx > maxW) sz.cx = maxW;
+    if (sz.cy > maxH) sz.cy = maxH;
+
+    return sz;
+}
+
 static void EnsureVisibility(bool show) {
     if (!g.hwndHost) return;
     if (show && !g.visible) {
@@ -1031,9 +1076,7 @@ static void TickUpdate() {
     int w = g.effectiveBubbleWidth;
     int h = g.effectiveBubbleHeight;
 
-    PositionBubbleNearCursor(g.hwndHost, pt, w, h);
-    ApplyRoundedRegion(g.hwndHost, w, h, g.effectiveCornerRadius);
-    EnsureVisibility(true);
+    // PositionBubbleNearCursor was here, moved down for dynamic sizing
 
     const bool wantText = (g.cfg.mode == Mode::TextOnly || g.cfg.mode == Mode::Auto);
     const bool wantMag  = (g.cfg.mode == Mode::MagnifierOnly || g.cfg.mode == Mode::Auto);
@@ -1086,6 +1129,19 @@ static void TickUpdate() {
             text = L"(no text detected)";
             showText = true;
         }
+    }
+
+    // Dynamic Sizing Logic
+    if (showText) {
+        SIZE sz = MeasureContentSize(text, g.effectiveBubbleWidth, g.effectiveBubbleHeight);
+        w = sz.cx;
+        h = sz.cy;
+    }
+
+    if (showText || showMag) {
+        PositionBubbleNearCursor(g.hwndHost, pt, w, h);
+        ApplyRoundedRegion(g.hwndHost, w, h, g.effectiveCornerRadius);
+        EnsureVisibility(true);
     }
 
     bool modeChanged = (showText != g.showingText) || (showMag != g.showingMag);
