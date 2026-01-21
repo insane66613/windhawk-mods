@@ -1,5 +1,5 @@
 // ==WindhawkMod==
-// @id              hover-text-magnifier-forked
+// @id              hover-text-magnifier
 // @name            Hover Text Magnifier (macOS-style) - Fork
 // @description     On-cursor hover bubble with large text via UI Automation; optional pixel magnifier fallback.
 // @version         1.2.0
