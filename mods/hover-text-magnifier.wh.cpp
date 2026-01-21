@@ -28,6 +28,22 @@ Notes:
 
 // ==WindhawkModSettings==
 /*
+- mode: auto
+  $name: Mode
+  $description: auto=text first (UIA) then optional magnifier fallback.
+  $options:
+    - auto: Auto (Text then Magnifier fallback)
+    - text: Text only
+    - magnifier: Magnifier only
+
+- textUnit: paragraph
+  $name: Text capture unit
+  $description: How much text to capture under the cursor.
+  $options:
+    - word: Word
+    - line: Line
+    - paragraph: Paragraph (Game changing for reading!)
+
 - triggerKey: ctrl
   $name: Trigger key
   $description: Hold this key to show the bubble (use "none" for always-on).
@@ -38,50 +54,26 @@ Notes:
     - shift: Shift
     - win: Win
 
-- mode: auto
-  $name: Mode
-  $description: auto=text first (UIA) then optional magnifier fallback.
-  $options:
-    - auto: Auto (Text then Magnifier fallback)
-    - text: Text only
-    - magnifier: Magnifier only
+- textPointSize: 26
+  $name: Text size (pt)
 
-- textUnit: word
-  $name: Text unit (UI Automation)
-  $options:
-    - word: Word
-    - line: Line
-    - paragraph: Paragraph
+- bubbleWidth: 600
+  $name: Max bubble width (px)
 
-- hideWhenNoText: false
-  $name: Hide bubble when no text is found (Text/Auto)
-
-- fallbackToMagnifier: true
-  $name: Fallback to magnifier when no text is found (Auto)
+- maxTextLen: 1000
+  $name: Max text length (chars)
 
 - zoomPercent: 250
   $name: Magnifier zoom (%)
 
-- bubbleWidth: 520
-  $name: Bubble width (px)
+- advancedSettings: false
+  $name: Show advanced appearance settings (Colors, Offsets, etc.)
+  $description: These settings are hidden by default to keep things simple. (Logic implemented in code to ignore these if false, or just purely organization in this file?)
+  // Actually Windhawk doesn't support conditional visibility. I will just group them with a header-like name or move them down. 
+  // I will just label them as "--- Advanced: ..."
 
-- bubbleHeight: 160
-  $name: Bubble height (px)
-
-- offsetX: 24
-  $name: Bubble offset X (px)
-
-- offsetY: 24
-  $name: Bubble offset Y (px)
-
-- cornerRadius: 16
-  $name: Corner radius (px)
-
-- borderWidth: 1
-  $name: Border width (px)
-
-- textPointSize: 26
-  $name: Text size (pt)
+- _sep1: 
+  $name: --- Advanced: Appearance ---
 
 - fontName: Segoe UI
   $name: Font name
@@ -92,6 +84,21 @@ Notes:
 - textColor: 0xF5F5F5
   $name: Text color (0xRRGGBB)
 
+- backgroundColor: 0x141414
+  $name: Background color (0xRRGGBB)
+
+- borderColor: 0x5A5A5A
+  $name: Border color (0xRRGGBB)
+
+- opacity: 245
+  $name: Bubble opacity (0-255)
+
+- cornerRadius: 16
+  $name: Corner radius (px)
+
+- padding: 18
+  $name: Text padding (px)
+
 - textAlign: left
   $name: Text alignment
   $options:
@@ -99,8 +106,29 @@ Notes:
     - center: Center
     - right: Right
 
-- maxLines: 4
-  $name: Max lines
+- maxLines: 20
+  $name: Max lines to display
+
+- _sep2:
+  $name: --- Advanced: Behavior & Offsets ---
+
+- hideWhenNoText: false
+  $name: Hide bubble when no text is found (Text/Auto)
+
+- fallbackToMagnifier: true
+  $name: Fallback to magnifier when no text is found (Auto)
+
+- bubbleHeight: 800
+  $name: Max bubble height (px)
+
+- offsetX: 24
+  $name: Bubble offset X (px)
+
+- offsetY: 24
+  $name: Bubble offset Y (px)
+
+- borderWidth: 1
+  $name: Border width (px)
 
 - textShadow: true
   $name: Text shadow
@@ -120,26 +148,11 @@ Notes:
 - outlineColor: 0x000000
   $name: Outline color (0xRRGGBB)
 
-- backgroundColor: 0x141414
-  $name: Background color (0xRRGGBB)
-
-- borderColor: 0x5A5A5A
-  $name: Border color (0xRRGGBB)
-
-- padding: 18
-  $name: Text padding (px)
-
 - updateIntervalMs: 16
   $name: Update interval (ms)
 
 - uiaQueryMinIntervalMs: 60
   $name: Min UIA query interval (ms)
-
-- maxTextLen: 220
-  $name: Max extracted text length
-
-- opacity: 245
-  $name: Bubble opacity (0-255)
 
 - autoHideDelayMs: 0
   $name: Auto-hide delay (ms)
@@ -270,6 +283,9 @@ struct RuntimeState {
     int effectiveCornerRadius = 16;
     int effectiveBorderWidth = 1;
     int effectivePadding = 18;
+
+    // Last committed window state
+    RECT lastWindowRect = { 0, 0, 0, 0 };
 
     // Cached Layout
     std::wstring cachedFittedText;
@@ -684,6 +700,10 @@ static void ApplyRoundedRegion(HWND hwnd, int w, int h, int radius) {
         SetWindowRgn(hwnd, nullptr, TRUE);
         return;
     }
+    // Only update if dimensions changed? SetWindowRgn already optimizes?
+    // Actually, calling SetWindowRgn repeatedly might cause flicker.
+    // Ideally we track the last applied RGN size. 
+    // For now we'll assume the caller (TickUpdate) handles preventing redundant layout updates.
     HRGN rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, radius * 2, radius * 2);
     if (!SetWindowRgn(hwnd, rgn, TRUE)) {
         DeleteObject(rgn);
@@ -698,6 +718,8 @@ static void EnsureVisibility(bool show) {
     } else if (!show && g.visible) {
         ShowWindow(g.hwndHost, SW_HIDE);
         g.visible = false;
+        // Reset last state so next show forces update
+        g.lastWindowRect = { 0, 0, 0, 0 };
     }
 }
 
@@ -713,6 +735,18 @@ static void PositionBubbleNearCursor(HWND hwnd, POINT pt, int w, int h) {
 
     x = std::max(workL, std::min(x, workR - w));
     y = std::max(workT, std::min(y, workB - h));
+
+    RECT newRect = { x, y, x + w, y + h };
+    if (newRect.left == g.lastWindowRect.left &&
+        newRect.top == g.lastWindowRect.top &&
+        newRect.right == g.lastWindowRect.right &&
+        newRect.bottom == g.lastWindowRect.bottom) 
+    {
+        // Position and size haven't changed.
+        return;
+    }
+
+    g.lastWindowRect = newRect;
 
     // Use SWP_NOREDRAW to prevent flicker, we'll invalidate manually
     SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_NOREDRAW);
