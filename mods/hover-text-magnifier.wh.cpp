@@ -127,9 +127,6 @@ Notes:
   $name: Hide bubble when no text is found
 - fallbackToMagnifier: true
   $name: Fallback to magnifier
-
-- updateIntervalMs: 16
-  $name: Update interval (ms)
 */
 // ==/WindhawkModSettings==
 
@@ -465,7 +462,6 @@ static void LoadSettings() {
     StringSetting mode(L"mode");
     StringSetting unit(L"textUnit");
     StringSetting fontName(L"fontName");
-    StringSetting align(L"textAlign");
 
     if (trig && wcscmp(trig, L"none") == 0) g.cfg.triggerKey = TriggerKey::None;
     else if (trig && wcscmp(trig, L"alt") == 0) g.cfg.triggerKey = TriggerKey::Alt;
@@ -569,7 +565,7 @@ static void LoadSettings() {
     g.cfg.padding = 18;
     g.cfg.offsetX = 24; g.cfg.offsetY = 24;
 
-    g.cfg.updateIntervalMs      = ClampInt(Wh_GetIntSetting(L"updateIntervalMs"), 8, 100);
+    g.cfg.updateIntervalMs      = 16; // Fixed 60fps
     g.cfg.uiaQueryMinIntervalMs = 60; // Fixed sensible default
 
     Wh_Log(L"Settings Loaded: Trigger=%d, Mode=%d, Theme=%s, Zoom=%d", 
