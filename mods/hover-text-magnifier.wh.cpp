@@ -1200,8 +1200,19 @@ void WhTool_ModUninit() {
         PostThreadMessage(g.threadId, WM_APP_EXIT_THREAD, 0, 0);
         PostThreadMessage(g.threadId, WM_QUIT, 0, 0);
     }
+    // Give the thread a moment to process the exit message
+    if (g.worker.joinable()) {
+        // Wait up to 500ms for clean exit
+        DWORD start = GetTickCount();
+        while (g.running && (GetTickCount() - start < 500)) {
+            Sleep(10);
+        }
+        // If still running, we might need to detach or force, but standard join is safer if we trust the logic
+        // For tool mods, if we hang here, we hang the Windhawk process manager for this mod.
+        // Let's rely on the join, which waits forever, but we sent WM_QUIT.
+        g.worker.join();
+    }
     g.running = false;
-    if (g.worker.joinable()) g.worker.join();
 }
 
 void WhTool_ModSettingsChanged() {
@@ -1290,8 +1301,25 @@ BOOL Wh_ModInit() {
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
             // This happens during mod reload if the old process hasn't exited yet.
             // Log it so we know why we are terminating.
-            Wh_Log(L"Tool mod already running (Mutex exists), exiting new instance.");
-            ExitProcess(1);
+            Wh_Log(L"Tool mod already running (Mutex exists). Waiting briefly for previous instance to exit...");
+            // Wait up to 2 seconds for the mutex to be released (previous process exit)
+            // Actually, we can't wait on it if we don't have the handle to the other process, 
+            // but the named mutex exists. 
+            // The previous process holds it. We can try to grab it?
+            // CreateMutex with ERROR_ALREADY_EXISTS means we got a handle, but we didn't get ownership?
+            // Actually CreateMutex(..., TRUE, ...) requests initial ownership.
+            // If it already exists, the function returns the handle, but GetLastError returns ERROR_ALREADY_EXISTS.
+            // Documentation says: "If the mutex is a named mutex and the object existed before this function call, the return value is a handle to the existing object, GetLastError returns ERROR_ALREADY_EXISTS".
+            // AND "bInitialOwner is ignored". 
+            // So we don't own it. We should wait for it.
+            
+            DWORD waitRes = WaitForSingleObject(g_toolModProcessMutex, 2000);
+            if (waitRes == WAIT_OBJECT_0 || waitRes == WAIT_ABANDONED) {
+                 Wh_Log(L"Previous instance exited/abandoned mutex. Proceeding.");
+            } else {
+                 Wh_Log(L"Previous instance still running after timeout. Exiting new instance.");
+                 ExitProcess(1);
+            }
         }
 
         if (!WhTool_ModInit()) {
