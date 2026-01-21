@@ -462,6 +462,19 @@ static std::wstring TrimAndCollapse(const std::wstring& in) {
     return out;
 }
 
+static void EnsureCapsLockOff() {
+    if ((GetKeyState(VK_CAPITAL) & 0x1) == 0) return;
+
+    INPUT inputs[2] = {};
+    inputs[0].type = INPUT_KEYBOARD;
+    inputs[0].ki.wVk = VK_CAPITAL;
+
+    inputs[1] = inputs[0];
+    inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+
+    SendInput(2, inputs, sizeof(INPUT));
+}
+
 static bool IsTriggerDown(TriggerKey k) {
     auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
     switch (k) {
@@ -1163,6 +1176,10 @@ static void TickUpdate() {
     bool triggerDown = IsTriggerDown(g.cfg.triggerKey);
     DWORD nowTick = GetTickCount();
 
+    if (g.cfg.triggerKey == TriggerKey::CapsLock) {
+        EnsureCapsLockOff();
+    }
+
     static bool dbgWasTriggerDown = false;
     if (triggerDown != dbgWasTriggerDown) {
         // Wh_Log(L"TickUpdate: Trigger %s (Key: %d)", triggerDown ? L"DOWN" : L"UP", (int)g.cfg.triggerKey);
@@ -1335,6 +1352,7 @@ static void WorkerThread() {
     // Use LL Hook if CapsLock needed
     if (g.cfg.triggerKey == TriggerKey::CapsLock) {
         InstallHooks();
+        EnsureCapsLockOff();
     } else {
         UninstallHooks();
     }
