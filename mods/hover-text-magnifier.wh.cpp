@@ -49,13 +49,14 @@ Notes:
 
 - triggerKey: ctrl
   $name: Trigger key
-  $description: Hold this key to show the bubble (use "none" for always-on).
+  $description: Hold key to show (or toggle with CapsLock).
   $options:
     - none: Always on
-    - ctrl: Ctrl
-    - alt: Alt
-    - shift: Shift
-    - win: Win
+    - ctrl: Hold Ctrl
+    - alt: Hold Alt
+    - shift: Hold Shift
+    - win: Hold Win
+    - capslock: Toggle CapsLock (Prevents default CapsLock behavior)
 
 - textPointSize: 26
   $name: Text size (pt)
@@ -203,7 +204,7 @@ static PFNMAGSETWINDOWSOURCE      pfnMagSetWindowSource = nullptr;
 static PFNMAGSETWINDOWTRANSFORM   pfnMagSetWindowTransform = nullptr;
 static PFNMAGSETWINDOWFILTERLIST  pfnMagSetWindowFilterList = nullptr;
 
-enum class TriggerKey { None, Ctrl, Alt, Shift, Win };
+enum class TriggerKey { None, Ctrl, Alt, Shift, Win, CapsLock };
 enum class Mode { Auto, TextOnly, MagnifierOnly };
 enum class HoverTextUnit { Word, Line, Paragraph }; // avoid UIA TextUnit name collision
 enum class TextAlign { Left, Center, Right };
@@ -253,6 +254,9 @@ struct RuntimeState {
     std::atomic<bool> running{false};
     std::thread worker;
     DWORD threadId = 0;
+
+    HHOOK hKeyboardHook = nullptr;
+    std::atomic<bool> capsLockToggleState{false};
 
     HWND hwndHost = nullptr;
     HWND hwndMag = nullptr;
@@ -467,11 +471,12 @@ static std::wstring TrimAndCollapse(const std::wstring& in) {
 static bool IsTriggerDown(TriggerKey k) {
     auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
     switch (k) {
-        case TriggerKey::None:  return true;
-        case TriggerKey::Ctrl:  return down(VK_LCONTROL) || down(VK_RCONTROL);
-        case TriggerKey::Alt:   return down(VK_LMENU) || down(VK_RMENU);
-        case TriggerKey::Shift: return down(VK_LSHIFT) || down(VK_RSHIFT);
-        case TriggerKey::Win:   return down(VK_LWIN) || down(VK_RWIN);
+        case TriggerKey::None:     return true;
+        case TriggerKey::Ctrl:     return down(VK_LCONTROL) || down(VK_RCONTROL);
+        case TriggerKey::Alt:      return down(VK_LMENU) || down(VK_RMENU);
+        case TriggerKey::Shift:    return down(VK_LSHIFT) || down(VK_RSHIFT);
+        case TriggerKey::Win:      return down(VK_LWIN) || down(VK_RWIN);
+        case TriggerKey::CapsLock: return g.capsLockToggleState;
         default: return false;
     }
 }
@@ -494,6 +499,7 @@ static void LoadSettings() {
     else if (trig && wcscmp(trig, L"alt") == 0) g.cfg.triggerKey = TriggerKey::Alt;
     else if (trig && wcscmp(trig, L"shift") == 0) g.cfg.triggerKey = TriggerKey::Shift;
     else if (trig && wcscmp(trig, L"win") == 0) g.cfg.triggerKey = TriggerKey::Win;
+    else if (trig && wcscmp(trig, L"capslock") == 0) g.cfg.triggerKey = TriggerKey::CapsLock;
     else g.cfg.triggerKey = TriggerKey::Ctrl;
 
     if (mode && wcscmp(mode, L"text") == 0) g.cfg.mode = Mode::TextOnly;
@@ -556,6 +562,36 @@ static void LoadSettings() {
     // So we should just flag them dirty or update them when sizing changes.
 }
 
+static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode == HC_ACTION) {
+        KBDLLHOOKSTRUCT* p = (KBDLLHOOKSTRUCT*)lParam;
+        if (g.cfg.triggerKey == TriggerKey::CapsLock && p->vkCode == VK_CAPITAL) {
+            if (wParam == WM_KEYDOWN) {
+                g.capsLockToggleState = !g.capsLockToggleState;
+                // Log toggle state for debugging
+                // Wh_Log(L"CapsLock Toggled: %s", g.capsLockToggleState ? L"ON" : L"OFF");
+            }
+            return 1; // Block the key
+        }
+    }
+    return CallNextHookEx(nullptr, nCode, wParam, lParam);
+}
+
+static void InstallHooks() {
+    if (!g.hKeyboardHook) {
+        g.hKeyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandleW(nullptr), 0);
+        if (!g.hKeyboardHook) {
+            Wh_Log(L"Failed to install keyboard hook. CapsLock toggle will not work.");
+        }
+    }
+}
+
+static void UninstallHooks() {
+    if (g.hKeyboardHook) {
+        UnhookWindowsHookEx(g.hKeyboardHook);
+        g.hKeyboardHook = nullptr;
+    }
+}
 
 static bool InitMagnification() {
     g.hMagnification = LoadLibraryW(L"Magnification.dll");
@@ -1199,6 +1235,13 @@ static void WorkerThread() {
 
     LoadSettings();
 
+    // Use LL Hook if CapsLock needed
+    if (g.cfg.triggerKey == TriggerKey::CapsLock) {
+        InstallHooks();
+    } else {
+        UninstallHooks();
+    }
+
     if (!InitUIA()) {
         Wh_Log(L"WorkerThread: InitUIA failed (or RPC_E_CHANGED_MODE). Text extraction may fail.");
     }
@@ -1234,6 +1277,7 @@ static void WorkerThread() {
             }
             if (msg.message == WM_APP_RELOAD_SETTINGS) {
                 LoadSettings();
+                if (g.cfg.triggerKey == TriggerKey::CapsLock) InstallHooks(); else UninstallHooks();
                 if (g.hwndHost) {
                     SetLayeredWindowAttributes(g.hwndHost, 0, (BYTE)g.cfg.opacity, LWA_ALPHA);
                 }
@@ -1248,6 +1292,8 @@ static void WorkerThread() {
 
     EnsureVisibility(false);
     DestroyWindows();
+
+    UninstallHooks();
 
     FreeGraphicsResources();
     UninitMagnification();
