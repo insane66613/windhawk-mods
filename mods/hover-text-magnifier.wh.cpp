@@ -1098,7 +1098,7 @@ static void TickUpdate() {
 
     static bool dbgWasTriggerDown = false;
     if (triggerDown != dbgWasTriggerDown) {
-        Wh_Log(L"TickUpdate: Trigger %s (Key: %d)", triggerDown ? L"DOWN" : L"UP", (int)g.cfg.triggerKey);
+        // Wh_Log(L"TickUpdate: Trigger %s (Key: %d)", triggerDown ? L"DOWN" : L"UP", (int)g.cfg.triggerKey);
         dbgWasTriggerDown = triggerDown;
     }
 
@@ -1146,7 +1146,7 @@ static void TickUpdate() {
             g.lastUiaQueryTick = nowTick;
             haveText = TryExtractTextAtPoint(pt, text);
             static bool dbgLoggedNoText = false;
-            
+
             if (haveText) {
                 g.lastValidTextTick = nowTick; // Update validity timestamp
                 dbgLoggedNoText = false;
@@ -1159,7 +1159,7 @@ static void TickUpdate() {
                     haveText = true;
                     text = g.currentText;
                 } else if (!dbgLoggedNoText && triggerDown) {
-                    Wh_Log(L"TickUpdate: No text found via UIA.");
+                    // Wh_Log(L"TickUpdate: No text found via UIA.");
                     dbgLoggedNoText = true;
                 }
             }
