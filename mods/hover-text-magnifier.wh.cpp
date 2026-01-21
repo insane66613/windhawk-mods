@@ -466,12 +466,19 @@ static bool IsTriggerDown(TriggerKey k) {
     }
 }
 
+struct StringSetting {
+    PCWSTR value;
+    StringSetting(PCWSTR name) : value(Wh_GetStringSetting(name)) {}
+    ~StringSetting() { if (value) Wh_FreeStringSetting(value); }
+    operator PCWSTR() const { return value; }
+};
+
 static void LoadSettings() {
-    PCWSTR trig = Wh_GetStringSetting(L"triggerKey");
-    PCWSTR mode = Wh_GetStringSetting(L"mode");
-    PCWSTR unit = Wh_GetStringSetting(L"textUnit");
-    PCWSTR fontName = Wh_GetStringSetting(L"fontName");
-    PCWSTR align = Wh_GetStringSetting(L"textAlign");
+    StringSetting trig(L"triggerKey");
+    StringSetting mode(L"mode");
+    StringSetting unit(L"textUnit");
+    StringSetting fontName(L"fontName");
+    StringSetting align(L"textAlign");
 
     if (trig && wcscmp(trig, L"none") == 0) g.cfg.triggerKey = TriggerKey::None;
     else if (trig && wcscmp(trig, L"alt") == 0) g.cfg.triggerKey = TriggerKey::Alt;
@@ -492,12 +499,6 @@ static void LoadSettings() {
     if (align && wcscmp(align, L"center") == 0) g.cfg.textAlign = TextAlign::Center;
     else if (align && wcscmp(align, L"right") == 0) g.cfg.textAlign = TextAlign::Right;
     else g.cfg.textAlign = TextAlign::Left;
-
-    if (trig) Wh_FreeStringSetting(trig);
-    if (mode) Wh_FreeStringSetting(mode);
-    if (unit) Wh_FreeStringSetting(unit);
-    if (fontName) Wh_FreeStringSetting(fontName);
-    if (align) Wh_FreeStringSetting(align);
 
     g.cfg.hideWhenNoText = Wh_GetIntSetting(L"hideWhenNoText") != 0;
     g.cfg.fallbackToMagnifier = Wh_GetIntSetting(L"fallbackToMagnifier") != 0;
