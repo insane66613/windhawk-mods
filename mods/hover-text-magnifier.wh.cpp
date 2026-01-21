@@ -15,17 +15,25 @@
 
 // ==WindhawkModReadme==
 /*
-Hold a trigger key (default: Ctrl) to show a bubble near the cursor.
+![Hover Text Magnifier Screenshot](https://raw.githubusercontent.com/insane66613/windhawk-mods/pr/hover-text-magnifier/images/screenshot.png)
 
-Modes:
-- auto: Text first via UI Automation; fallback to pixel magnifier if enabled.
-- text: Text only
-- magnifier: Pixel magnifier only
+A powerful accessibility tool that shows a magnified text bubble when you hold a trigger key (default: Ctrl) or toggle it on.
 
-Notes:
-- Some apps do not expose text through UI Automation (games, video, custom renderers).
-- Auto mode can fall back to the magnifier in those cases.
-- You can customize colors and font in settings.
+## Features
+*   **Text Extraction:** Reads text directly from the screen (UI Automation) and displays it in a clean, high-contrast text bubble.
+*   **Dynamic Sizing:** The bubble automatically resizes to fit the content, from single words to full paragraphs.
+*   **Magnifier Fallback:** If no text is found (e.g., inside images or games), it seamlessly switches to a pixel-magnifier.
+*   **Themes:** Includes Dark, Light, Sepia, and High Contrast themes out of the box.
+*   **Reading Modes:** Capture by Word, Line, or Paragraph.
+*   **Toggle Mode:** Use CapsLock to toggle the customized bubble on and off (blocks original CapsLock function).
+
+## Usage
+*   **Hold Ctrl** (default) and hover over text.
+*   **Toggle:** Set the Trigger Key to **CapsLock** in settings to click-to-toggle.
+
+## Settings
+*   **Appearance:** Choose from predefined themes and sizes (Small, Medium, Large, Huge).
+*   **Behavior:** Customize trigger key, update speed, and fallback behavior.
 */
 // ==/WindhawkModReadme==
 
