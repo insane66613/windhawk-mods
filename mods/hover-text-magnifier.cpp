@@ -2,8 +2,10 @@
 // @id              hover-text-magnifier-forked
 // @name            Hover Text Magnifier (macOS-style) - Fork
 // @description     On-cursor hover bubble with large text via UI Automation; optional pixel magnifier fallback.
-// @version         1.1.0
+// @version         1.2.0
 // @author          Math Shamenson
+// @github          https://github.com/insane66613
+// @license         MIT
 // @include         *
 // @compilerOptions -lgdi32 -luxtheme -lole32 -loleaut32 -luuid
 // ==/WindhawkMod==
@@ -90,6 +92,34 @@ Notes:
 - textColor: 0xF5F5F5
     $name: Text color (0xRRGGBB)
 
+- textAlign: left
+    $name: Text alignment
+    $options:
+        - left: Left
+        - center: Center
+        - right: Right
+
+- maxLines: 4
+    $name: Max lines
+
+- textShadow: true
+    $name: Text shadow
+
+- shadowOffsetX: 1
+    $name: Shadow offset X (px)
+
+- shadowOffsetY: 1
+    $name: Shadow offset Y (px)
+
+- shadowColor: 0x000000
+    $name: Shadow color (0xRRGGBB)
+
+- outlineWidth: 0
+    $name: Outline width (px)
+
+- outlineColor: 0x000000
+    $name: Outline color (0xRRGGBB)
+
 - backgroundColor: 0x141414
     $name: Background color (0xRRGGBB)
 
@@ -110,6 +140,9 @@ Notes:
 
 - opacity: 245
   $name: Bubble opacity (0-255)
+
+- autoHideDelayMs: 0
+    $name: Auto-hide delay (ms)
 */
 // ==/WindhawkModSettings==
 
@@ -120,11 +153,7 @@ Notes:
 #include <windows.h>
 #include <commctrl.h>   // ensures HIMAGELIST exists for uxtheme.h
 #include <uxtheme.h>
-#ifdef WH_EDITING
-#include <windhawk_utils.h>
-#else
 #include <windhawk_api.h>
-#endif
 
 #include <UIAutomation.h>
 #include <objbase.h>
@@ -138,19 +167,6 @@ Notes:
 #include <algorithm>
 #include <cmath>
 
-#ifdef WH_EDITING
-#ifndef Wh_GetStringSetting
-inline PCWSTR Wh_GetStringSetting(PCWSTR) { return L""; }
-#endif
-
-#ifndef Wh_FreeStringSetting
-inline void Wh_FreeStringSetting(PCWSTR) {}
-#endif
-
-#ifndef Wh_GetIntSetting
-inline int Wh_GetIntSetting(PCWSTR) { return 0; }
-#endif
-#endif
 
 static constexpr wchar_t kHostClassName[] = L"WH_HoverTextMagnifierHost";
 
@@ -178,6 +194,7 @@ static PFNMAGSETWINDOWFILTERLIST  pfnMagSetWindowFilterList = nullptr;
 enum class TriggerKey { None, Ctrl, Alt, Shift, Win };
 enum class Mode { Auto, TextOnly, MagnifierOnly };
 enum class HoverTextUnit { Word, Line, Paragraph }; // avoid UIA TextUnit name collision
+enum class TextAlign { Left, Center, Right };
 
 struct AppSettings {
     TriggerKey triggerKey = TriggerKey::Ctrl;
@@ -200,6 +217,14 @@ struct AppSettings {
     std::wstring fontName = L"Segoe UI";
     int fontWeight = 600;
     int textColor = 0xF5F5F5;
+    TextAlign textAlign = TextAlign::Left;
+    int maxLines = 4;
+    bool textShadow = true;
+    int shadowOffsetX = 1;
+    int shadowOffsetY = 1;
+    int shadowColor = 0x000000;
+    int outlineWidth = 0;
+    int outlineColor = 0x000000;
     int backgroundColor = 0x141414;
     int borderColor = 0x5A5A5A;
     int padding = 18;
@@ -209,6 +234,7 @@ struct AppSettings {
     int maxTextLen = 220;
 
     int opacity = 245;
+    int autoHideDelayMs = 0;
 };
 
 struct AtomicBool {
@@ -248,6 +274,9 @@ struct RuntimeState {
     bool showingMag = false;
     std::wstring currentText;
 
+    DWORD lastTriggerUpTick = 0;
+    bool triggerWasDown = false;
+
     float dpiScale = 1.0f;
     int effectiveBubbleWidth = 520;
     int effectiveBubbleHeight = 160;
@@ -273,6 +302,46 @@ static int ClampInt(int v, int lo, int hi) {
 
 static int RoundToInt(float v) {
     return (v >= 0.0f) ? (int)(v + 0.5f) : (int)(v - 0.5f);
+}
+
+static UINT GetTextAlignFlags() {
+    switch (g.cfg.textAlign) {
+        case TextAlign::Center: return DT_CENTER;
+        case TextAlign::Right:  return DT_RIGHT;
+        default:                return DT_LEFT;
+    }
+}
+
+static std::wstring FitTextToHeight(HDC hdc, const std::wstring& text, int maxWidth, int maxHeight, UINT flags) {
+    if (text.empty()) return text;
+
+    RECT rc{ 0, 0, maxWidth, maxHeight };
+    RECT calc = rc;
+    DrawTextW(hdc, text.c_str(), (int)text.size(), &calc, flags | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX);
+    if (calc.bottom <= maxHeight) return text;
+
+    std::wstring ell = L"…";
+    int lo = 0;
+    int hi = (int)text.size();
+    std::wstring best = ell;
+
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        std::wstring candidate = text.substr(0, mid);
+        candidate += ell;
+
+        calc = rc;
+        DrawTextW(hdc, candidate.c_str(), (int)candidate.size(), &calc, flags | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX);
+
+        if (calc.bottom <= maxHeight) {
+            best = candidate;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+
+    return best;
 }
 
 static COLORREF ColorFromRGBInt(int rgb) {
@@ -357,6 +426,7 @@ static void LoadSettings() {
     PCWSTR mode = Wh_GetStringSetting(L"mode");
     PCWSTR unit = Wh_GetStringSetting(L"textUnit");
     PCWSTR fontName = Wh_GetStringSetting(L"fontName");
+    PCWSTR align = Wh_GetStringSetting(L"textAlign");
 
     if (trig && wcscmp(trig, L"none") == 0) g.cfg.triggerKey = TriggerKey::None;
     else if (trig && wcscmp(trig, L"alt") == 0) g.cfg.triggerKey = TriggerKey::Alt;
@@ -374,10 +444,15 @@ static void LoadSettings() {
 
     if (fontName && *fontName) g.cfg.fontName = fontName;
 
+    if (align && wcscmp(align, L"center") == 0) g.cfg.textAlign = TextAlign::Center;
+    else if (align && wcscmp(align, L"right") == 0) g.cfg.textAlign = TextAlign::Right;
+    else g.cfg.textAlign = TextAlign::Left;
+
     if (trig) Wh_FreeStringSetting(trig);
     if (mode) Wh_FreeStringSetting(mode);
     if (unit) Wh_FreeStringSetting(unit);
     if (fontName) Wh_FreeStringSetting(fontName);
+    if (align) Wh_FreeStringSetting(align);
 
     g.cfg.hideWhenNoText = Wh_GetIntSetting(L"hideWhenNoText") != 0;
     g.cfg.fallbackToMagnifier = Wh_GetIntSetting(L"fallbackToMagnifier") != 0;
@@ -394,6 +469,13 @@ static void LoadSettings() {
     g.cfg.textPointSize = ClampInt(Wh_GetIntSetting(L"textPointSize"), 10, 120);
     g.cfg.fontWeight    = ClampInt(Wh_GetIntSetting(L"fontWeight"), 100, 900);
     g.cfg.textColor     = ClampInt(Wh_GetIntSetting(L"textColor"), 0x000000, 0xFFFFFF);
+    g.cfg.maxLines      = ClampInt(Wh_GetIntSetting(L"maxLines"), 1, 20);
+    g.cfg.textShadow    = Wh_GetIntSetting(L"textShadow") != 0;
+    g.cfg.shadowOffsetX = ClampInt(Wh_GetIntSetting(L"shadowOffsetX"), -10, 10);
+    g.cfg.shadowOffsetY = ClampInt(Wh_GetIntSetting(L"shadowOffsetY"), -10, 10);
+    g.cfg.shadowColor   = ClampInt(Wh_GetIntSetting(L"shadowColor"), 0x000000, 0xFFFFFF);
+    g.cfg.outlineWidth  = ClampInt(Wh_GetIntSetting(L"outlineWidth"), 0, 6);
+    g.cfg.outlineColor  = ClampInt(Wh_GetIntSetting(L"outlineColor"), 0x000000, 0xFFFFFF);
     g.cfg.backgroundColor = ClampInt(Wh_GetIntSetting(L"backgroundColor"), 0x000000, 0xFFFFFF);
     g.cfg.borderColor   = ClampInt(Wh_GetIntSetting(L"borderColor"), 0x000000, 0xFFFFFF);
     g.cfg.padding       = ClampInt(Wh_GetIntSetting(L"padding"), 4, 120);
@@ -403,6 +485,7 @@ static void LoadSettings() {
     g.cfg.maxTextLen            = ClampInt(Wh_GetIntSetting(L"maxTextLen"), 40, 2000);
 
     g.cfg.opacity = ClampInt(Wh_GetIntSetting(L"opacity"), 40, 255);
+    g.cfg.autoHideDelayMs = ClampInt(Wh_GetIntSetting(L"autoHideDelayMs"), 0, 3000);
 }
 
 static bool InitMagnification() {
@@ -679,8 +762,46 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 tr.right  -= g.effectivePadding;
                 tr.bottom -= g.effectivePadding;
 
-                DrawTextW(hdc, g.currentText.c_str(), -1, &tr,
-                          DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
+                int lineHeight = (int)std::abs(lf.lfHeight);
+                int maxHeight = std::max(1, (g.effectivePadding * 2) + (g.cfg.maxLines * lineHeight));
+                int availHeight = std::max(1, (int)(tr.bottom - tr.top));
+                int targetHeight = std::min(availHeight, maxHeight);
+
+                std::wstring text = FitTextToHeight(
+                    hdc,
+                    g.currentText,
+                    std::max(1, (int)(tr.right - tr.left)),
+                    targetHeight,
+                    GetTextAlignFlags()
+                );
+
+                UINT alignFlags = GetTextAlignFlags();
+
+                if (g.cfg.outlineWidth > 0) {
+                    SetTextColor(hdc, ColorFromRGBInt(g.cfg.outlineColor));
+                    int ow = g.cfg.outlineWidth;
+                    for (int dy = -ow; dy <= ow; ++dy) {
+                        for (int dx = -ow; dx <= ow; ++dx) {
+                            if (dx == 0 && dy == 0) continue;
+                            RECT trO = tr;
+                            OffsetRect(&trO, dx, dy);
+                            DrawTextW(hdc, text.c_str(), -1, &trO,
+                                      DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX | alignFlags);
+                        }
+                    }
+                }
+
+                if (g.cfg.textShadow) {
+                    SetTextColor(hdc, ColorFromRGBInt(g.cfg.shadowColor));
+                    RECT trS = tr;
+                    OffsetRect(&trS, g.cfg.shadowOffsetX, g.cfg.shadowOffsetY);
+                    DrawTextW(hdc, text.c_str(), -1, &trS,
+                              DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX | alignFlags);
+                }
+
+                SetTextColor(hdc, ColorFromRGBInt(g.cfg.textColor));
+                DrawTextW(hdc, text.c_str(), -1, &tr,
+                          DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX | alignFlags);
 
                 SelectObject(hdc, oldFont);
                 DeleteObject(font);
@@ -753,9 +874,27 @@ static void DestroyWindows() {
 static void TickUpdate() {
     if (!g.hwndHost) return;
 
-    if (!IsTriggerDown(g.cfg.triggerKey)) {
-        EnsureVisibility(false);
-        return;
+    bool triggerDown = IsTriggerDown(g.cfg.triggerKey);
+    DWORD nowTick = GetTickCount();
+
+    if (!triggerDown) {
+        if (g.cfg.autoHideDelayMs > 0) {
+            if (g.triggerWasDown) {
+                g.lastTriggerUpTick = nowTick;
+                g.triggerWasDown = false;
+            }
+
+            if (nowTick - g.lastTriggerUpTick >= (DWORD)g.cfg.autoHideDelayMs) {
+                EnsureVisibility(false);
+                return;
+            }
+        } else {
+            EnsureVisibility(false);
+            g.triggerWasDown = false;
+            return;
+        }
+    } else {
+        g.triggerWasDown = true;
     }
 
     POINT pt;
@@ -778,8 +917,6 @@ static void TickUpdate() {
 
     bool haveText = false;
     std::wstring text;
-
-    DWORD nowTick = GetTickCount();
 
     if (wantText && g.uiaReady) {
         if (nowTick - g.lastUiaQueryTick >= (DWORD)g.cfg.uiaQueryMinIntervalMs || pt.x != g.lastCursor.x || pt.y != g.lastCursor.y) {
