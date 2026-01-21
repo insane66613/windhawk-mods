@@ -234,13 +234,8 @@ long WINAPI CTaskBand_Launch_Hook(LPVOID pThis,
         return CTaskBand_Launch_Original(pThis, taskGroup, param2, param3);
     };
 
-<<<<<<< HEAD
-    // Ensure the click context was captured by a preceding hook.
-    if (!g_pCTaskListWndHandlingClick || !g_pCTaskListWndTaskBtnGroup) {
-=======
     if (!g_pCTaskListWndHandlingClick || !g_pTaskListLongPtrHandlingClick ||
         !g_pCTaskListWndTaskBtnGroup) {
->>>>>>> a90b6af603d993de3518399d642b2240eef88966
         return original();
     }
 
@@ -260,97 +255,7 @@ long WINAPI CTaskBand_Launch_Hook(LPVOID pThis,
     // Determine if we're clicking a single item (1) or a combined group (3).
     int groupType =
         CTaskBtnGroup_GetGroupType_Original(g_pCTaskListWndTaskBtnGroup);
-<<<<<<< HEAD
 
-    HWND hWnd = nullptr;
-
-    // --- Logic for single items (and uncombined groups) ---
-    if (groupType == 1) {
-        int taskItemIndex = g_CTaskListWndTaskItemIndex;
-        if (taskItemIndex >= 0) {
-            void* taskItem = CTaskBtnGroup_GetTaskItem_Original(
-                g_pCTaskListWndTaskBtnGroup, taskItemIndex);
-            if (taskItem) {
-                if (*(void**)taskItem == CImmersiveTaskItem_vftable) {
-                    hWnd = CImmersiveTaskItem_GetWindow_Original(taskItem);
-                } else {
-                    hWnd = CWindowTaskItem_GetWindow_Original(taskItem);
-                }
-            }
-        }
-    }
-    // --- Logic for combined groups ---
-    else if (groupType == 3) {
-        switch (g_settings.multipleItemsBehavior) {
-            case MULTIPLE_ITEMS_BEHAVIOR_NONE:
-                return 0; // Do nothing and suppress the default action.
-
-            case MULTIPLE_ITEMS_BEHAVIOR_CLOSE_ALL: {
-                bool ctrlDown = GetKeyState(VK_CONTROL) < 0;
-                bool altDown = GetKeyState(VK_MENU) < 0;
-                bool endTask = (ctrlDown || altDown) &&
-                               g_settings.keysToEndTaskCtrl == ctrlDown &&
-                               g_settings.keysToEndTaskAlt == altDown;
-
-                POINT pt;
-                GetCursorPos(&pt);
-                HMONITOR monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-
-                for (int i = 0; ; i++) {
-                    void* taskItem = CTaskBtnGroup_GetTaskItem_Original(
-                        g_pCTaskListWndTaskBtnGroup, i);
-                    if (!taskItem) {
-                        break;
-                    }
-
-                    HWND itemHWnd = nullptr;
-                    if (*(void**)taskItem == CImmersiveTaskItem_vftable) {
-                        itemHWnd = CImmersiveTaskItem_GetWindow_Original(taskItem);
-                    } else {
-                        itemHWnd = CWindowTaskItem_GetWindow_Original(taskItem);
-                    }
-
-                    if (itemHWnd) {
-                        if (endTask) {
-                            CTaskBand__EndTask_Original(pThis, itemHWnd, TRUE);
-                        } else {
-                            CTaskListWnd_ProcessJumpViewCloseWindow_Original(
-                                g_pCTaskListWndHandlingClick, itemHWnd, realTaskGroup,
-                                monitor);
-                        }
-                    }
-                }
-                return 0; // Action is complete for the group.
-            }
-
-            case MULTIPLE_ITEMS_BEHAVIOR_CLOSE_FOREGROUND: {
-                // STABILITY FIX: The original GetActiveBtn method crashes.
-                // This stable alternative closes the FIRST window in the group.
-                void* taskItem = CTaskBtnGroup_GetTaskItem_Original(
-                    g_pCTaskListWndTaskBtnGroup, 0);
-                if (taskItem) {
-                    if (*(void**)taskItem == CImmersiveTaskItem_vftable) {
-                        hWnd = CImmersiveTaskItem_GetWindow_Original(taskItem);
-                    } else {
-                        hWnd = CWindowTaskItem_GetWindow_Original(taskItem);
-                    }
-                }
-                // Break to fall through to the common closing logic below.
-                break;
-            }
-        }
-    } else {
-        // Not a group type we handle (e.g., a pinned item), so allow default behavior.
-        return original();
-    }
-
-    // --- Common closing logic for single items or the "first of group" case ---
-    if (!hWnd) {
-        // Suppress default action even if no window was found.
-        return 0;
-    }
-
-=======
     if (groupType != 1 && groupType != 3) {
         return original();
     }
@@ -381,8 +286,6 @@ long WINAPI CTaskBand_Launch_Hook(LPVOID pThis,
     } else {
         taskItemIndex = g_CTaskListWndTaskItemIndex;
     }
-
->>>>>>> a90b6af603d993de3518399d642b2240eef88966
     bool ctrlDown = GetKeyState(VK_CONTROL) < 0;
     bool altDown = GetKeyState(VK_MENU) < 0;
     bool endTask = (ctrlDown || altDown) &&
