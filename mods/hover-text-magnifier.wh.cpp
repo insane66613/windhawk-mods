@@ -1384,6 +1384,7 @@ void WhTool_ModSettingsChanged() {
 // Currently, other callbacks are not supported.
 
 bool g_isToolModProcessLauncher;
+bool g_wrongProcess;
 HANDLE g_toolModProcessMutex;
 
 void WINAPI EntryPoint_Hook() {
@@ -1400,7 +1401,10 @@ BOOL Wh_ModInit() {
         processName = processName ? processName + 1 : processPath;
         if (_wcsicmp(processName, L"windhawk.exe") != 0) {
             // Quietly exit for non-Windhawk processes to prevent noise
-            return FALSE;
+            // Returning FALSE causes "Process prohibits dynamic code" in some sandboxed apps (e.g. Claude)
+            // because Windhawk attempts to unload the DLL. Returning TRUE keeps it loaded but dormant.
+            g_wrongProcess = true;
+            return TRUE;
         }
     }
 
@@ -1556,7 +1560,7 @@ void Wh_ModAfterInit() {
 }
 
 void Wh_ModSettingsChanged() {
-    if (g_isToolModProcessLauncher) {
+    if (g_isToolModProcessLauncher || g_wrongProcess) {
         return;
     }
 
@@ -1564,7 +1568,7 @@ void Wh_ModSettingsChanged() {
 }
 
 void Wh_ModUninit() {
-    if (g_isToolModProcessLauncher) {
+    if (g_isToolModProcessLauncher || g_wrongProcess) {
         return;
     }
 
