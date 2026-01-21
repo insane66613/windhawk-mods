@@ -306,6 +306,8 @@ struct RuntimeState {
 
 static RuntimeState g;
 
+static void UiaWorkerThread();
+
 static UINT WM_APP_RELOAD_SETTINGS = WM_APP + 1;
 static UINT WM_APP_EXIT_THREAD     = WM_APP + 2;
 
@@ -1483,16 +1485,21 @@ BOOL Wh_ModInit() {
     // Safety check: Ensure we only run in windhawk.exe
     // This protects against cases where the @include rule is ignored or overridden
     WCHAR processPath[MAX_PATH];
-    if (GetModuleFileNameW(nullptr, processPath, ARRAYSIZE(processPath))) {
-        const WCHAR* processName = wcsrchr(processPath, L'\\');
-        processName = processName ? processName + 1 : processPath;
-        if (_wcsicmp(processName, L"windhawk.exe") != 0) {
-            // Quietly exit for non-Windhawk processes to prevent noise
-            // Returning FALSE causes "Process prohibits dynamic code" in some sandboxed apps (e.g. Claude)
-            // because Windhawk attempts to unload the DLL. Returning TRUE keeps it loaded but dormant.
-            g_wrongProcess = true;
-            return TRUE;
-        }
+    DWORD processPathLen = GetModuleFileNameW(nullptr, processPath, ARRAYSIZE(processPath));
+    if (processPathLen == 0 || processPathLen >= ARRAYSIZE(processPath)) {
+        // If we can't reliably identify the host process, stay dormant to avoid unload issues.
+        g_wrongProcess = true;
+        return TRUE;
+    }
+
+    const WCHAR* processName = wcsrchr(processPath, L'\\');
+    processName = processName ? processName + 1 : processPath;
+    if (_wcsicmp(processName, L"windhawk.exe") != 0) {
+        // Quietly exit for non-Windhawk processes to prevent noise.
+        // Returning FALSE causes "Process prohibits dynamic code" in some sandboxed apps (e.g. Claude)
+        // because Windhawk attempts to unload the DLL. Returning TRUE keeps it loaded but dormant.
+        g_wrongProcess = true;
+        return TRUE;
     }
 
     bool isService = false;
@@ -1502,7 +1509,8 @@ BOOL Wh_ModInit() {
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv) {
         Wh_Log(L"CommandLineToArgvW failed");
-        return FALSE;
+        g_wrongProcess = true;
+        return TRUE;
     }
 
     for (int i = 1; i < argc; i++) {
@@ -1525,7 +1533,9 @@ BOOL Wh_ModInit() {
     LocalFree(argv);
 
     if (isService) {
-        return FALSE;
+        // Avoid unload attempts in the service process.
+        g_wrongProcess = true;
+        return TRUE;
     }
 
     if (isCurrentToolModProcess) {
@@ -1568,7 +1578,9 @@ BOOL Wh_ModInit() {
     }
 
     if (isToolModProcess) {
-        return FALSE;
+        // Another tool-mod process; stay dormant to avoid unload issues.
+        g_wrongProcess = true;
+        return TRUE;
     }
 
     g_isToolModProcessLauncher = true;
