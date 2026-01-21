@@ -1385,9 +1385,13 @@ void WhTool_ModSettingsChanged() {
 
 bool g_isToolModProcessLauncher;
 bool g_wrongProcess;
+bool g_shouldExitProcess;
 HANDLE g_toolModProcessMutex;
 
 void WINAPI EntryPoint_Hook() {
+    if (g_shouldExitProcess) {
+        ExitProcess(0);
+    }
     // Wh_Log(L">");
     ExitThread(0);
 }
@@ -1446,36 +1450,26 @@ BOOL Wh_ModInit() {
             CreateMutexW(nullptr, TRUE, L"windhawk-tool-mod_" WH_MOD_ID);
         if (!g_toolModProcessMutex) {
             Wh_Log(L"CreateMutex failed");
-            return FALSE;
+            g_shouldExitProcess = true;
         }
 
-        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (!g_shouldExitProcess && GetLastError() == ERROR_ALREADY_EXISTS) {
             // This happens during mod reload if the old process hasn't exited yet.
             // Log it so we know why we are terminating.
-            // Wh_Log(L"Tool mod already running (Mutex exists). Waiting briefly for previous instance to exit...");
-            // Wait up to 2 seconds for the mutex to be released (previous process exit)
-            // Actually, we can't wait on it if we don't have the handle to the other process, 
-            // but the named mutex exists. 
-            // The previous process holds it. We can try to grab it?
-            // CreateMutex with ERROR_ALREADY_EXISTS means we got a handle, but we didn't get ownership?
-            // Actually CreateMutex(..., TRUE, ...) requests initial ownership.
-            // If it already exists, the function returns the handle, but GetLastError returns ERROR_ALREADY_EXISTS.
-            // Documentation says: "If the mutex is a named mutex and the object existed before this function call, the return value is a handle to the existing object, GetLastError returns ERROR_ALREADY_EXISTS".
-            // AND "bInitialOwner is ignored". 
-            // So we don't own it. We should wait for it.
+            // ...
             
             DWORD waitRes = WaitForSingleObject(g_toolModProcessMutex, 2000);
             if (waitRes == WAIT_OBJECT_0 || waitRes == WAIT_ABANDONED) {
                  // Wh_Log(L"Previous instance exited/abandoned mutex. Proceeding.");
             } else {
                  Wh_Log(L"Previous instance still running after timeout. Exiting new instance.");
-                 return FALSE;
+                 g_shouldExitProcess = true;
             }
         }
 
-        if (!WhTool_ModInit()) {
+        if (!g_shouldExitProcess && !WhTool_ModInit()) {
             Wh_Log(L"WhTool_ModInit failed");
-            return FALSE;
+            g_shouldExitProcess = true;
         }
 
 
