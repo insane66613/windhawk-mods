@@ -1089,20 +1089,31 @@ static void TickUpdate() {
 
 static void WorkerThread() {
     g.threadId = GetCurrentThreadId();
+    Wh_Log(L"WorkerThread: Started. ThreadId=%u", g.threadId);
+
     MSG msg;
     PeekMessage(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE); // ensure queue exists
 
     LoadSettings();
-    InitUIA();           // best-effort
-    InitMagnification(); // best-effort
+    Wh_Log(L"WorkerThread: Settings loaded.");
+
+    if (!InitUIA()) {
+        Wh_Log(L"WorkerThread: InitUIA failed (or RPC_E_CHANGED_MODE). Text extraction may fail.");
+    }
+    
+    if (!InitMagnification()) {
+        Wh_Log(L"WorkerThread: InitMagnification failed. Magnifier mode will not work.");
+    }
 
     if (!CreateWindows()) {
+        Wh_Log(L"WorkerThread: CreateWindows failed. Exiting.");
         g.running = false;
         UninitMagnification();
         UninitUIA();
         return;
     }
 
+    Wh_Log(L"WorkerThread: Initialization complete. Entering message loop.");
     g.running = true;
 
     while (g.running) {
