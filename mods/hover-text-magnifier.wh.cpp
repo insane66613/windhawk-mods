@@ -68,9 +68,7 @@ Notes:
 
 - advancedSettings: false
   $name: Show advanced appearance settings (Colors, Offsets, etc.)
-  $description: These settings are hidden by default to keep things simple. (Logic implemented in code to ignore these if false, or just purely organization in this file?)
-  // Actually Windhawk doesn't support conditional visibility. I will just group them with a header-like name or move them down. 
-  // I will just label them as "--- Advanced: ..."
+  $description: These settings are hidden by default to keep things simple.
 
 - _sep1: 
   $name: --- Advanced: Appearance ---
