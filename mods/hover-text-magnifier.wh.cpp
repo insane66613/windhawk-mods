@@ -15,25 +15,27 @@
 
 // ==WindhawkModReadme==
 /*
-![Hover Text Magnifier Screenshot](https://raw.githubusercontent.com/insane66613/windhawk-mods/pr/hover-text-magnifier/images/screenshot.png)
+![Hover Text Magnifier](https://raw.githubusercontent.com/insane66613/windhawk-mods/pr/hover-text-magnifier/images/hover-text-magnifier.png)
 
-A powerful accessibility tool that shows a magnified text bubble when you hold a trigger key (default: Ctrl) or toggle it on.
+**Hover Text Magnifier** is a powerful accessibility tool designed to make reading small text effortless, especially on large displays, TVs, or high-DPI monitors where you might sit at a distance.
+
+Inspired by the macOS feature, it displays a high-contrast, large-text bubble for whatever is under your mouse cursor. Unlike standard magnifiers that zoom the entire screen and require constant panning, this tool intelligently extracts the *text itself* and renders it clearly in a dedicated overlay.
+
+## Why use this?
+*   **Distance Reading:** Perfect for using a TV as a monitor from the couch. Read file names, menu items, and terminal commands without squinting or leaning forward.
+*   **Focus, Don't Zoom:** Magnifying the whole screen can be disorienting. This keeps your context visible while making the specific target readable.
+*   **Reclaim Caps Lock:** Make the most underutilized key on your keyboard useful again! Use Caps Lock as a toggle switch to turn text magnification on/off instantly—turning wasted keyboard real estate into a productivity tool.
 
 ## Features
-*   **Text Extraction:** Reads text directly from the screen (UI Automation) and displays it in a clean, high-contrast text bubble.
-*   **Dynamic Sizing:** The bubble automatically resizes to fit the content, from single words to full paragraphs.
-*   **Magnifier Fallback:** If no text is found (e.g., inside images or games), it seamlessly switches to a pixel-magnifier.
-*   **Themes:** Includes Dark, Light, Sepia, and High Contrast themes out of the box.
-*   **Reading Modes:** Capture by Word, Line, or Paragraph.
-*   **Toggle Mode:** Use CapsLock to toggle the customized bubble on and off (blocks original CapsLock function).
+*   **Smart Text Extraction:** Uses UI Automation to grab text from buttons, menus, and documents.
+*   **Seamless Fallback:** If text isn't available (like in an image), it automatically switches to a pixel magnifier.
+*   **Dynamic Sizing:** The bubble expands to fit single words or full paragraphs.
+*   **Customizable:** Build for your eyes—choose from High Contrast, Dark, Sepia, or Light themes. Customizable fonts and sizes.
+*   **Trigger Modes:** Hold Ctrl (default) or toggle with Caps Lock (blocks original Caps Lock function when active).
 
 ## Usage
-*   **Hold Ctrl** (default) and hover over text.
-*   **Toggle:** Set the Trigger Key to **CapsLock** in settings to click-to-toggle.
-
-## Settings
-*   **Appearance:** Choose from predefined themes and sizes (Small, Medium, Large, Huge).
-*   **Behavior:** Customize trigger key, update speed, and fallback behavior.
+*   **Default:** Hold **Ctrl** and hover over any text to see it magnified.
+*   **Toggle:** Go to settings and set Trigger Key to **CapsLock**. Tap CapsLock to toggle the magnifier on/off permanently.
 */
 // ==/WindhawkModReadme==
 
