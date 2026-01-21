@@ -1354,10 +1354,15 @@ void WhTool_ModUninit() {
         while (g.running && (GetTickCount() - start < 500)) {
             Sleep(10);
         }
-        // If still running, we might need to detach or force, but standard join is safer if we trust the logic
-        // For tool mods, if we hang here, we hang the Windhawk process manager for this mod.
-        // Let's rely on the join, which waits forever, but we sent WM_QUIT.
-        g.worker.join();
+        
+        // If still running, detach and let ExitProcess clean it up.
+        // Calling join() here would hang if the thread is blocked (e.g. in UIA call).
+        if (g.running) {
+             g.worker.detach();
+             Wh_Log(L"WorkerThread didn't exit in time. Detaching.");
+        } else {
+             g.worker.join();
+        }
     }
     g.running = false;
 }
