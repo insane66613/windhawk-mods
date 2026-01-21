@@ -1395,6 +1395,9 @@ HANDLE g_toolModProcessMutex;
 
 void WINAPI EntryPoint_Hook() {
     if (g_shouldExitProcess) {
+        // Give the injector service a moment to finish its bookkeeping
+        // before we vanish, reducing the chance of C000010A errors.
+        Sleep(50); 
         ExitProcess(0);
     }
     // Wh_Log(L">");
