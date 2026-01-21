@@ -1395,10 +1395,11 @@ HANDLE g_toolModProcessMutex;
 
 void WINAPI EntryPoint_Hook() {
     if (g_shouldExitProcess) {
-        // Give the injector service a moment to finish its bookkeeping
-        // before we vanish, reducing the chance of C000010A errors.
-        Sleep(50); 
-        ExitProcess(0);
+        // Just exit the main thread. Since we didn't start any worker threads
+        // (because initialization failed), this will naturally cause the process
+        // to exit when the last thread dies. This avoids aggressive ExitProcess
+        // calls that might race with the injector.
+        ExitThread(0);
     }
     // Wh_Log(L">");
     ExitThread(0);
