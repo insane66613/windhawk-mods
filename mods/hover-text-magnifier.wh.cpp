@@ -568,9 +568,10 @@ static void LoadSettings() {
     g.cfg.updateIntervalMs      = 16; // Fixed 60fps
     g.cfg.uiaQueryMinIntervalMs = 60; // Fixed sensible default
 
+    /*
     Wh_Log(L"Settings Loaded: Trigger=%d, Mode=%d, Theme=%s, Zoom=%d", 
         (int)g.cfg.triggerKey, (int)g.cfg.mode, theme ? theme.value : L"default", g.cfg.zoomPercent);
-
+    */
     // Refresh graphics resources since settings (colors/fonts) changed
     // We need a valid DPI scale; if not set yet, guess 1.0 or wait until first paint.
     // Ideally we update them on TickUpdate/sizing, but fonts/colors only change here.
@@ -1246,7 +1247,7 @@ static void TickUpdate() {
 
 static void WorkerThread() {
     g.threadId = GetCurrentThreadId();
-    Wh_Log(L"WorkerThread: Started. ThreadId=%u", g.threadId);
+    // Wh_Log(L"WorkerThread: Started. ThreadId=%u", g.threadId);
 
     MSG msg;
     PeekMessage(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE); // ensure queue exists
@@ -1275,9 +1276,9 @@ static void WorkerThread() {
         UninitUIA();
         return;
     }
-    Wh_Log(L"WorkerThread: Window created. HWNDHost=%p", g.hwndHost);
+    // Wh_Log(L"WorkerThread: Window created. HWNDHost=%p", g.hwndHost);
 
-    Wh_Log(L"WorkerThread: Initialization complete. Entering message loop.");
+    // Wh_Log(L"WorkerThread: Initialization complete. Entering message loop.");
     g.running = true;
 
     while (g.running) {
@@ -1372,7 +1373,7 @@ bool g_isToolModProcessLauncher;
 HANDLE g_toolModProcessMutex;
 
 void WINAPI EntryPoint_Hook() {
-    Wh_Log(L">");
+    // Wh_Log(L">");
     ExitThread(0);
 }
 
@@ -1433,7 +1434,7 @@ BOOL Wh_ModInit() {
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
             // This happens during mod reload if the old process hasn't exited yet.
             // Log it so we know why we are terminating.
-            Wh_Log(L"Tool mod already running (Mutex exists). Waiting briefly for previous instance to exit...");
+            // Wh_Log(L"Tool mod already running (Mutex exists). Waiting briefly for previous instance to exit...");
             // Wait up to 2 seconds for the mutex to be released (previous process exit)
             // Actually, we can't wait on it if we don't have the handle to the other process, 
             // but the named mutex exists. 
@@ -1447,7 +1448,7 @@ BOOL Wh_ModInit() {
             
             DWORD waitRes = WaitForSingleObject(g_toolModProcessMutex, 2000);
             if (waitRes == WAIT_OBJECT_0 || waitRes == WAIT_ABANDONED) {
-                 Wh_Log(L"Previous instance exited/abandoned mutex. Proceeding.");
+                 // Wh_Log(L"Previous instance exited/abandoned mutex. Proceeding.");
             } else {
                  Wh_Log(L"Previous instance still running after timeout. Exiting new instance.");
                  ExitProcess(1);
