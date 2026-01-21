@@ -71,7 +71,7 @@ Notes:
   $description: These settings are hidden by default to keep things simple.
 
 - _sep1: 
-  $name: --- Advanced: Appearance ---
+  $name: "--- Advanced: Appearance ---"
 
 - fontName: Segoe UI
   $name: Font name
@@ -108,7 +108,7 @@ Notes:
   $name: Max lines to display
 
 - _sep2:
-  $name: --- Advanced: Behavior & Offsets ---
+  $name: "--- Advanced: Behavior & Offsets ---"
 
 - hideWhenNoText: false
   $name: Hide bubble when no text is found (Text/Auto)
