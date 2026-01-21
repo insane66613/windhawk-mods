@@ -276,6 +276,9 @@ struct RuntimeState {
     DWORD lastTriggerUpTick = 0;
     bool triggerWasDown = false;
 
+    // Debounce for text loss to prevent flicker
+    DWORD lastValidTextTick = 0;
+
     float dpiScale = 1.0f;
     int effectiveBubbleWidth = 520;
     int effectiveBubbleHeight = 160;
@@ -1089,13 +1092,22 @@ static void TickUpdate() {
             g.lastUiaQueryTick = nowTick;
             haveText = TryExtractTextAtPoint(pt, text);
             static bool dbgLoggedNoText = false;
+            
             if (haveText) {
-                // Throttle success logs, logging every time is annoying, but maybe log "Found text" once per trigger session?
-                // For now, let's keep it quiet unless failure
+                g.lastValidTextTick = nowTick; // Update validity timestamp
                 dbgLoggedNoText = false;
-            } else if (!dbgLoggedNoText && triggerDown) {
-                Wh_Log(L"TickUpdate: No text found via UIA.");
-                dbgLoggedNoText = true;
+            } else {
+                // Hysteresis: If we lost text, check if we should debounce
+                // (Only if we were previously showing text)
+                if (g.showingText && !g.currentText.empty() && 
+                    (nowTick - g.lastValidTextTick < 300)) // 300ms grace period
+                {
+                    haveText = true;
+                    text = g.currentText;
+                } else if (!dbgLoggedNoText && triggerDown) {
+                    Wh_Log(L"TickUpdate: No text found via UIA.");
+                    dbgLoggedNoText = true;
+                }
             }
         } else {
             haveText = g.showingText && !g.currentText.empty();
