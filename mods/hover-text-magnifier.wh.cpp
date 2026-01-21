@@ -1190,6 +1190,17 @@ void WINAPI EntryPoint_Hook() {
 }
 
 BOOL Wh_ModInit() {
+    // Safety check: Ensure we only run in windhawk.exe
+    // This protects against cases where the @include rule is ignored or overridden
+    WCHAR processPath[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, processPath, ARRAYSIZE(processPath))) {
+        const WCHAR* processName = wcsrchr(processPath, L'\\');
+        processName = processName ? processName + 1 : processPath;
+        if (_wcsicmp(processName, L"windhawk.exe") != 0) {
+            return FALSE;
+        }
+    }
+
     bool isService = false;
     bool isToolModProcess = false;
     bool isCurrentToolModProcess = false;
