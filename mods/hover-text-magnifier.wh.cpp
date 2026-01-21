@@ -271,6 +271,11 @@ struct RuntimeState {
     int effectiveBorderWidth = 1;
     int effectivePadding = 18;
 
+    // Cached GDI objects
+    HFONT hFont = nullptr;
+    HBRUSH hBgBrush = nullptr;
+    HPEN hBorderPen = nullptr;
+
     AppSettings cfg;
 };
 
@@ -330,11 +335,36 @@ static std::wstring FitTextToHeight(HDC hdc, const std::wstring& text, int maxWi
 }
 
 static COLORREF ColorFromRGBInt(int rgb) {
+
     int r = (rgb >> 16) & 0xFF;
     int g = (rgb >> 8) & 0xFF;
     int b = rgb & 0xFF;
     return RGB(r, g, b);
 }
+
+static void FreeGraphicsResources() {
+    if (g.hFont) { DeleteObject(g.hFont); g.hFont = nullptr; }
+    if (g.hBgBrush) { DeleteObject(g.hBgBrush); g.hBgBrush = nullptr; }
+    if (g.hBorderPen) { DeleteObject(g.hBorderPen); g.hBorderPen = nullptr; }
+}
+
+static void UpdateGraphicsResources() {
+    FreeGraphicsResources();
+
+    LOGFONTW lf{};
+    lf.lfHeight = -RoundToInt(g.cfg.textPointSize * g.dpiScale * 96.0f / 72.0f); // Approximate point-to-pixel
+    lf.lfWeight = g.cfg.fontWeight;
+    lstrcpynW(lf.lfFaceName, g.cfg.fontName.c_str(), LF_FACESIZE);
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    g.hFont = CreateFontIndirectW(&lf);
+
+    g.hBgBrush = CreateSolidBrush(ColorFromRGBInt(g.cfg.backgroundColor));
+
+    if (g.effectiveBorderWidth > 0) {
+        g.hBorderPen = CreatePen(PS_SOLID, g.effectiveBorderWidth, ColorFromRGBInt(g.cfg.borderColor));
+    }
+}
+
 
 static float GetDpiScaleForPoint(POINT pt) {
     typedef HRESULT(WINAPI* GetDpiForMonitor_t)(HMONITOR, int, UINT*, UINT*);
@@ -361,7 +391,10 @@ static float GetDpiScaleForPoint(POINT pt) {
 }
 
 static void UpdateEffectiveSizing(POINT pt) {
-    g.dpiScale = GetDpiScaleForPoint(pt);
+    float newScale = GetDpiScaleForPoint(pt);
+    bool scaleChanged = (std::abs(newScale - g.dpiScale) > 0.001f);
+    g.dpiScale = newScale;
+
     g.effectiveBubbleWidth = std::max(1, RoundToInt(g.cfg.bubbleWidth * g.dpiScale));
     g.effectiveBubbleHeight = std::max(1, RoundToInt(g.cfg.bubbleHeight * g.dpiScale));
     g.effectiveOffsetX = RoundToInt(g.cfg.offsetX * g.dpiScale);
@@ -369,7 +402,13 @@ static void UpdateEffectiveSizing(POINT pt) {
     g.effectiveCornerRadius = std::max(0, RoundToInt(g.cfg.cornerRadius * g.dpiScale));
     g.effectiveBorderWidth = std::max(0, RoundToInt(g.cfg.borderWidth * g.dpiScale));
     g.effectivePadding = std::max(1, RoundToInt(g.cfg.padding * g.dpiScale));
+
+    // If scale changed or resources are missing (first run), recreate them
+    if (scaleChanged || !g.hFont) {
+        UpdateGraphicsResources();
+    }
 }
+
 
 static std::wstring TrimAndCollapse(const std::wstring& in) {
     std::wstring s = in;
@@ -469,9 +508,19 @@ static void LoadSettings() {
     g.cfg.uiaQueryMinIntervalMs = ClampInt(Wh_GetIntSetting(L"uiaQueryMinIntervalMs"), 20, 500);
     g.cfg.maxTextLen            = ClampInt(Wh_GetIntSetting(L"maxTextLen"), 40, 2000);
 
+
     g.cfg.opacity = ClampInt(Wh_GetIntSetting(L"opacity"), 40, 255);
     g.cfg.autoHideDelayMs = ClampInt(Wh_GetIntSetting(L"autoHideDelayMs"), 0, 3000);
+
+    // Refresh graphics resources since settings (colors/fonts) changed
+    // We need a valid DPI scale; if not set yet, guess 1.0 or wait until first paint.
+    // Ideally we update them on TickUpdate/sizing, but fonts/colors only change here.
+    // Re-creating them in UpdateEffectiveSizing would be too frequent.
+    // Let's assume standard DPI for initial load, or rely on UpdateEffectiveSizing calling us?
+    // Actually, UpdateEffectiveSizing changes sizes, which affects font size.
+    // So we should just flag them dirty or update them when sizing changes.
 }
+
 
 static bool InitMagnification() {
     g.hMagnification = LoadLibraryW(L"Magnification.dll");
@@ -715,13 +764,12 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             RECT rc;
             GetClientRect(hwnd, &rc);
 
-            HBRUSH bg = CreateSolidBrush(ColorFromRGBInt(g.cfg.backgroundColor));
-            FillRect(hdc, &rc, bg);
-            DeleteObject(bg);
+            if (g.hBgBrush) {
+                FillRect(hdc, &rc, g.hBgBrush);
+            }
 
-            if (g.effectiveBorderWidth > 0) {
-                HPEN pen = CreatePen(PS_SOLID, g.effectiveBorderWidth, ColorFromRGBInt(g.cfg.borderColor));
-                HGDIOBJ oldPen = SelectObject(hdc, pen);
+            if (g.effectiveBorderWidth > 0 && g.hBorderPen) {
+                HGDIOBJ oldPen = SelectObject(hdc, g.hBorderPen);
                 HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
 
                 int inset = g.effectiveBorderWidth / 2;
@@ -736,17 +784,10 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
                 SelectObject(hdc, oldBrush);
                 SelectObject(hdc, oldPen);
-                DeleteObject(pen);
             }
 
-            if (g.showingText) {
-                LOGFONTW lf{};
-                lf.lfHeight = -MulDiv(g.cfg.textPointSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
-                lf.lfWeight = g.cfg.fontWeight;
-                lstrcpynW(lf.lfFaceName, g.cfg.fontName.c_str(), LF_FACESIZE);
-
-                HFONT font = CreateFontIndirectW(&lf);
-                HGDIOBJ oldFont = SelectObject(hdc, font);
+            if (g.showingText && g.hFont) {
+                HGDIOBJ oldFont = SelectObject(hdc, g.hFont);
                 SetBkMode(hdc, TRANSPARENT);
                 SetTextColor(hdc, ColorFromRGBInt(g.cfg.textColor));
 
@@ -756,6 +797,8 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 tr.right  -= g.effectivePadding;
                 tr.bottom -= g.effectivePadding;
 
+                LOGFONTW lf{};
+                GetObjectW(g.hFont, sizeof(lf), &lf);
                 int lineHeight = (int)std::abs(lf.lfHeight);
                 int maxHeight = std::max(1, (g.effectivePadding * 2) + (g.cfg.maxLines * lineHeight));
                 int availHeight = std::max(1, (int)(tr.bottom - tr.top));
@@ -798,7 +841,6 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                           DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX | alignFlags);
 
                 SelectObject(hdc, oldFont);
-                DeleteObject(font);
             }
 
             EndPaint(hwnd, &ps);
@@ -1040,8 +1082,10 @@ static void WorkerThread() {
     EnsureVisibility(false);
     DestroyWindows();
 
+    FreeGraphicsResources();
     UninitMagnification();
     UninitUIA();
+
 }
 
 
