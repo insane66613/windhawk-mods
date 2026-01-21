@@ -159,9 +159,7 @@ Notes:
 #include <objbase.h>
 #include <oleauto.h>
 
-#ifndef WH_EDITING
 #include <atomic>
-#endif
 #include <thread>
 #include <string>
 #include <algorithm>
@@ -237,21 +235,8 @@ struct AppSettings {
     int autoHideDelayMs = 0;
 };
 
-struct AtomicBool {
-    volatile bool value;
-    AtomicBool(bool v = false) : value(v) {}
-    operator bool() const { return value; }
-    AtomicBool& operator=(bool v) { value = v; return *this; }
-};
-
-#ifndef WH_EDITING
-using AtomicBoolReal = std::atomic<bool>;
-#else
-using AtomicBoolReal = AtomicBool;
-#endif
-
 struct RuntimeState {
-    AtomicBoolReal running{false};
+    std::atomic<bool> running{false};
     std::thread worker;
     DWORD threadId = 0;
 
@@ -301,7 +286,7 @@ static int ClampInt(int v, int lo, int hi) {
 }
 
 static int RoundToInt(float v) {
-    return (v >= 0.0f) ? (int)(v + 0.5f) : (int)(v - 0.5f);
+    return static_cast<int>(std::round(v));
 }
 
 static UINT GetTextAlignFlags() {
@@ -644,7 +629,9 @@ static void ApplyRoundedRegion(HWND hwnd, int w, int h, int radius) {
         return;
     }
     HRGN rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, radius * 2, radius * 2);
-    SetWindowRgn(hwnd, rgn, TRUE);
+    if (!SetWindowRgn(hwnd, rgn, TRUE)) {
+        DeleteObject(rgn);
+    }
 }
 
 static void EnsureVisibility(bool show) {
@@ -673,6 +660,8 @@ static void PositionBubbleNearCursor(HWND hwnd, POINT pt, int w, int h) {
 
     // Use SWP_NOREDRAW to prevent flicker, we'll invalidate manually
     SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_NOREDRAW);
+    InvalidateRect(hwnd, nullptr, FALSE);
+    UpdateWindow(hwnd);
 }
 
 static void UpdateMagnifierSource(HWND hwndMag, POINT pt, int w, int h) {
@@ -687,11 +676,16 @@ static void UpdateMagnifierSource(HWND hwndMag, POINT pt, int w, int h) {
     RECT work = GetWorkAreaForPoint(pt);
     LONG workL = work.left, workT = work.top, workR = work.right, workB = work.bottom;
 
+    int halfWLow  = srcW / 2;
+    int halfWHigh = (srcW + 1) / 2;
+    int halfHLow  = srcH / 2;
+    int halfHHigh = (srcH + 1) / 2;
+
     MAGRECTANGLE src = {
-        (LONG)(pt.x - srcW / 2),
-        (LONG)(pt.y - srcH / 2),
-        (LONG)(pt.x + srcW / 2),
-        (LONG)(pt.y + srcH / 2)
+        (LONG)(pt.x - halfWLow),
+        (LONG)(pt.y - halfHLow),
+        (LONG)(pt.x + halfWHigh),
+        (LONG)(pt.y + halfHHigh)
     };
 
     src.left   = std::max(workL, src.left);
@@ -822,7 +816,13 @@ static bool CreateWindows() {
     wc.lpszClassName = kHostClassName;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 
-    RegisterClassExW(&wc);
+    ATOM atom = RegisterClassExW(&wc);
+    if (!atom) {
+        DWORD err = GetLastError();
+        if (err != ERROR_CLASS_ALREADY_EXISTS) {
+            return false;
+        }
+    }
 
     DWORD ex = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED | WS_EX_TRANSPARENT;
     DWORD style = WS_POPUP;
@@ -837,17 +837,21 @@ static bool CreateWindows() {
 
     SetLayeredWindowAttributes(g.hwndHost, 0, (BYTE)g.cfg.opacity, LWA_ALPHA);
 
-    g.hwndMag = CreateWindowExW(
-        WS_EX_TRANSPARENT,
-        L"Magnifier",
-        L"HoverTextMagnifier",
-        WS_CHILD,
-        0, 0, 10, 10,
-        g.hwndHost,
-        nullptr,
-        wc.hInstance,
-        nullptr
-    );
+    if (g.magReady) {
+        g.hwndMag = CreateWindowExW(
+            WS_EX_TRANSPARENT,
+            L"Magnifier",
+            L"HoverTextMagnifier",
+            WS_CHILD,
+            0, 0, 10, 10,
+            g.hwndHost,
+            nullptr,
+            wc.hInstance,
+            nullptr
+        );
+    } else {
+        g.hwndMag = nullptr;
+    }
 
     if (g.hwndMag) {
         SetWindowTheme(g.hwndMag, L"", L"");
@@ -1041,8 +1045,8 @@ static void WorkerThread() {
 }
 
 BOOL Wh_ModInit() {
-    g.running = true;
     g.worker = std::thread(WorkerThread);
+    g.threadId = GetThreadId((HANDLE)g.worker.native_handle());
     return TRUE;
 }
 
