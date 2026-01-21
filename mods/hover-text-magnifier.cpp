@@ -138,6 +138,7 @@ Notes:
 #include <algorithm>
 #include <cmath>
 
+#ifdef WH_EDITING
 #ifndef Wh_GetStringSetting
 inline PCWSTR Wh_GetStringSetting(PCWSTR) { return L""; }
 #endif
@@ -148,6 +149,7 @@ inline void Wh_FreeStringSetting(PCWSTR) {}
 
 #ifndef Wh_GetIntSetting
 inline int Wh_GetIntSetting(PCWSTR) { return 0; }
+#endif
 #endif
 
 static constexpr wchar_t kHostClassName[] = L"WH_HoverTextMagnifierHost";
@@ -243,7 +245,17 @@ struct RuntimeState {
 
     bool visible = false;
     bool showingText = false;
+    bool showingMag = false;
     std::wstring currentText;
+
+    float dpiScale = 1.0f;
+    int effectiveBubbleWidth = 520;
+    int effectiveBubbleHeight = 160;
+    int effectiveOffsetX = 24;
+    int effectiveOffsetY = 24;
+    int effectiveCornerRadius = 16;
+    int effectiveBorderWidth = 1;
+    int effectivePadding = 18;
 
     AppSettings cfg;
 };
@@ -268,6 +280,41 @@ static COLORREF ColorFromRGBInt(int rgb) {
     int g = (rgb >> 8) & 0xFF;
     int b = rgb & 0xFF;
     return RGB(r, g, b);
+}
+
+static float GetDpiScaleForPoint(POINT pt) {
+    typedef HRESULT(WINAPI* GetDpiForMonitor_t)(HMONITOR, int, UINT*, UINT*);
+    static GetDpiForMonitor_t pGetDpiForMonitor = []() -> GetDpiForMonitor_t {
+        HMODULE hShcore = LoadLibraryW(L"Shcore.dll");
+        if (!hShcore) return nullptr;
+        return (GetDpiForMonitor_t)GetProcAddress(hShcore, "GetDpiForMonitor");
+    }();
+
+    const int MDT_EFFECTIVE_DPI = 0;
+    HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    if (pGetDpiForMonitor && hm) {
+        UINT dpiX = 0, dpiY = 0;
+        if (SUCCEEDED(pGetDpiForMonitor(hm, MDT_EFFECTIVE_DPI, &dpiX, &dpiY)) && dpiX > 0) {
+            return (float)dpiX / 96.0f;
+        }
+    }
+
+    HDC hdc = GetDC(nullptr);
+    int dpi = hdc ? GetDeviceCaps(hdc, LOGPIXELSX) : 96;
+    if (hdc) ReleaseDC(nullptr, hdc);
+    if (dpi <= 0) dpi = 96;
+    return (float)dpi / 96.0f;
+}
+
+static void UpdateEffectiveSizing(POINT pt) {
+    g.dpiScale = GetDpiScaleForPoint(pt);
+    g.effectiveBubbleWidth = std::max(1, RoundToInt(g.cfg.bubbleWidth * g.dpiScale));
+    g.effectiveBubbleHeight = std::max(1, RoundToInt(g.cfg.bubbleHeight * g.dpiScale));
+    g.effectiveOffsetX = RoundToInt(g.cfg.offsetX * g.dpiScale);
+    g.effectiveOffsetY = RoundToInt(g.cfg.offsetY * g.dpiScale);
+    g.effectiveCornerRadius = std::max(0, RoundToInt(g.cfg.cornerRadius * g.dpiScale));
+    g.effectiveBorderWidth = std::max(0, RoundToInt(g.cfg.borderWidth * g.dpiScale));
+    g.effectivePadding = std::max(1, RoundToInt(g.cfg.padding * g.dpiScale));
 }
 
 static std::wstring TrimAndCollapse(const std::wstring& in) {
@@ -542,7 +589,7 @@ static void PositionBubbleNearCursor(HWND hwnd, POINT pt, int w, int h) {
     y = std::max(workT, std::min(y, workB - h));
 
     // Use SWP_NOREDRAW to prevent flicker, we'll invalidate manually
-    SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
+    SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_NOREDRAW);
 }
 
 static void UpdateMagnifierSource(HWND hwndMag, POINT pt, int w, int h) {
@@ -595,19 +642,19 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             FillRect(hdc, &rc, bg);
             DeleteObject(bg);
 
-            if (g.cfg.borderWidth > 0) {
-                HPEN pen = CreatePen(PS_SOLID, g.cfg.borderWidth, ColorFromRGBInt(g.cfg.borderColor));
+            if (g.effectiveBorderWidth > 0) {
+                HPEN pen = CreatePen(PS_SOLID, g.effectiveBorderWidth, ColorFromRGBInt(g.cfg.borderColor));
                 HGDIOBJ oldPen = SelectObject(hdc, pen);
                 HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
 
-                int inset = g.cfg.borderWidth / 2;
+                int inset = g.effectiveBorderWidth / 2;
                 RoundRect(
                     hdc,
                     inset, inset,
                     (rc.right - rc.left) - inset,
                     (rc.bottom - rc.top) - inset,
-                    g.cfg.cornerRadius * 2,
-                    g.cfg.cornerRadius * 2
+                    g.effectiveCornerRadius * 2,
+                    g.effectiveCornerRadius * 2
                 );
 
                 SelectObject(hdc, oldBrush);
@@ -627,10 +674,10 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 SetTextColor(hdc, ColorFromRGBInt(g.cfg.textColor));
 
                 RECT tr = rc;
-                tr.left   += g.cfg.padding;
-                tr.top    += g.cfg.padding;
-                tr.right  -= g.cfg.padding;
-                tr.bottom -= g.cfg.padding;
+                tr.left   += g.effectivePadding;
+                tr.top    += g.effectivePadding;
+                tr.right  -= g.effectivePadding;
+                tr.bottom -= g.effectivePadding;
 
                 DrawTextW(hdc, g.currentText.c_str(), -1, &tr,
                           DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -717,11 +764,13 @@ static void TickUpdate() {
         return;
     }
 
-    int w = std::max(1, g.cfg.bubbleWidth);
-    int h = std::max(1, g.cfg.bubbleHeight);
+    UpdateEffectiveSizing(pt);
+
+    int w = g.effectiveBubbleWidth;
+    int h = g.effectiveBubbleHeight;
 
     PositionBubbleNearCursor(g.hwndHost, pt, w, h);
-    ApplyRoundedRegion(g.hwndHost, w, h, g.cfg.cornerRadius);
+    ApplyRoundedRegion(g.hwndHost, w, h, g.effectiveCornerRadius);
     EnsureVisibility(true);
 
     const bool wantText = (g.cfg.mode == Mode::TextOnly || g.cfg.mode == Mode::Auto);
@@ -770,13 +819,19 @@ static void TickUpdate() {
         }
     }
 
+    bool modeChanged = (showText != g.showingText) || (showMag != g.showingMag);
+    bool textChanged = showText && (text != g.currentText);
+
     g.showingText = showText;
+    g.showingMag = showMag;
 
     if (showText) {
         g.currentText = text;
         if (g.hwndMag) ShowWindow(g.hwndMag, SW_HIDE);
-        InvalidateRect(g.hwndHost, nullptr, TRUE);
-        UpdateWindow(g.hwndHost);
+        if (textChanged || modeChanged) {
+            InvalidateRect(g.hwndHost, nullptr, TRUE);
+            UpdateWindow(g.hwndHost);
+        }
     } else if (showMag) {
         ShowWindow(g.hwndMag, SW_SHOWNA);
         SetWindowPos(g.hwndMag, nullptr, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -787,8 +842,10 @@ static void TickUpdate() {
         }
 
         UpdateMagnifierSource(g.hwndMag, pt, w, h);
-        InvalidateRect(g.hwndHost, nullptr, TRUE);
-        UpdateWindow(g.hwndHost);
+        if (modeChanged) {
+            InvalidateRect(g.hwndHost, nullptr, TRUE);
+            UpdateWindow(g.hwndHost);
+        }
     } else {
         EnsureVisibility(false);
     }
