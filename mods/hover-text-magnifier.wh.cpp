@@ -40,11 +40,10 @@ Notes:
     - magnifier: Magnifier only
 
 - textUnit: paragraph
-  $name: Text capture unit
-  $description: How much text to capture under the cursor.
+  $name: Text capture mode
   $options:
-    - word: Word
-    - line: Line
+    - word: Word (Single word)
+    - line: Line (Single line)
     - paragraph: Paragraph (Game changing for reading!)
 
 - triggerKey: ctrl
@@ -58,106 +57,79 @@ Notes:
     - win: Hold Win
     - capslock: Toggle CapsLock (Prevents default CapsLock behavior)
 
-- textPointSize: 26
-  $name: Text size (pt)
+- colorTheme: dark
+  $name: Color Theme
+  $options:
+    - dark: Dark Mode (Dark Gray BG, White Text)
+    - light: Light Mode (White BG, Black Text)
+    - high_contrast_black: High Contrast Black
+    - high_contrast_white: High Contrast White
+    - sepia: Sepia / Soft Reading
+    - custom: Custom (Use Advanced Settings)
 
-- bubbleWidth: 600
-  $name: Max bubble width (px)
+- bubbleSize: medium
+  $name: Bubble Size (Max Dimensions)
+  $options:
+    - small: Small (Compact)
+    - medium: Medium (Standard)
+    - large: Large (Long paragraphs)
+    - huge: Huge (Full screen width)
 
-- maxTextLen: 4000
-  $name: Max text length (chars)
+- fontStyle: modern
+  $name: Font Style
+  $options:
+    - modern: Modern (Segoe UI)
+    - classic: Classic (Arial/Tahoma)
+    - serif: Serif (Georgia)
+    - monospace: Code (Consolas)
 
-- zoomPercent: 250
-  $name: Magnifier zoom (%)
+- fontSizePreset: medium
+  $name: Text Size
+  $options:
+    - small: Small
+    - medium: Medium
+    - large: Large
+    - extra_large: Extra Large
+
+- zoomLevel: 250
+  $name: Magnifier Zoom Level
+  $options:
+    - 150: 150%
+    - 200: 200%
+    - 250: 250%
+    - 300: 300%
+    - 350: 350%
+    - 400: 400%
+    - 500: 500%
 
 - advancedSettings: false
-  $name: Show advanced appearance settings (Colors, Offsets, etc.)
-  $description: These settings are hidden by default to keep things simple.
+  $name: Show Advanced / Custom Settings
+  $description: Enable this to customize individual colors and fine-tune dimensions if 'Custom' theme is selected.
 
 - _sep1: ""
-  $name: "--- Advanced: Appearance ---"
+  $name: "--- Advanced: Custom Appearance ---"
 
-- fontName: Segoe UI
-  $name: Font name
-
-- fontWeight: 600
-  $name: Font weight (100-900)
-
-- textColor: 0xF5F5F5
-  $name: Text color (0xRRGGBB)
-
-- backgroundColor: 0x141414
-  $name: Background color (0xRRGGBB)
-
-- borderColor: 0x5A5A5A
-  $name: Border color (0xRRGGBB)
-
-- opacity: 245
-  $name: Bubble opacity (0-255)
-
-- cornerRadius: 16
-  $name: Corner radius (px)
-
-- padding: 18
-  $name: Text padding (px)
-
-- textAlign: left
-  $name: Text alignment
-  $options:
-    - left: Left
-    - center: Center
-    - right: Right
-
-- maxLines: 80
-  $name: Max lines to display
+- customFontName: Segoe UI
+  $name: Custom Font Name
+- customTextColor: 0xF5F5F5
+  $name: Custom Text Color (0xRRGGBB)
+- customBackgroundColor: 0x141414
+  $name: Custom Background Color (0xRRGGBB)
+- customBorderColor: 0x5A5A5A
+  $name: Custom Border Color (0xRRGGBB)
+- customTextSize: 26
+  $name: Custom Text Size (pt)
 
 - _sep2: ""
-  $name: "--- Advanced: Behavior & Offsets ---"
+  $name: "--- Advanced: Behavior ---"
 
 - hideWhenNoText: false
-  $name: Hide bubble when no text is found (Text/Auto)
-
+  $name: Hide bubble when no text is found
 - fallbackToMagnifier: true
-  $name: Fallback to magnifier when no text is found (Auto)
-
-- bubbleHeight: 800
-  $name: Max bubble height (px)
-
-- offsetX: 24
-  $name: Bubble offset X (px)
-
-- offsetY: 24
-  $name: Bubble offset Y (px)
-
-- borderWidth: 1
-  $name: Border width (px)
-
-- textShadow: true
-  $name: Text shadow
-
-- shadowOffsetX: 1
-  $name: Shadow offset X (px)
-
-- shadowOffsetY: 1
-  $name: Shadow offset Y (px)
-
-- shadowColor: 0x000000
-  $name: Shadow color (0xRRGGBB)
-
-- outlineWidth: 0
-  $name: Outline width (px)
-
-- outlineColor: 0x000000
-  $name: Outline color (0xRRGGBB)
+  $name: Fallback to magnifier
 
 - updateIntervalMs: 16
   $name: Update interval (ms)
-
-- uiaQueryMinIntervalMs: 60
-  $name: Min UIA query interval (ms)
-
-- autoHideDelayMs: 0
-  $name: Auto-hide delay (ms)
 */
 // ==/WindhawkModSettings==
 
@@ -510,48 +482,98 @@ static void LoadSettings() {
     else if (unit && wcscmp(unit, L"paragraph") == 0) g.cfg.textUnit = HoverTextUnit::Paragraph;
     else g.cfg.textUnit = HoverTextUnit::Word;
 
-    if (fontName && *fontName) g.cfg.fontName = fontName;
+    // --- Font Style Presets ---
+    StringSetting fStyle(L"fontStyle");
+    if (fStyle && wcscmp(fStyle, L"monospace") == 0) g.cfg.fontName = L"Consolas";
+    else if (fStyle && wcscmp(fStyle, L"serif") == 0) g.cfg.fontName = L"Georgia";
+    else if (fStyle && wcscmp(fStyle, L"classic") == 0) g.cfg.fontName = L"Arial";
+    else g.cfg.fontName = L"Segoe UI"; // modern/default
 
-    if (align && wcscmp(align, L"center") == 0) g.cfg.textAlign = TextAlign::Center;
-    else if (align && wcscmp(align, L"right") == 0) g.cfg.textAlign = TextAlign::Right;
-    else g.cfg.textAlign = TextAlign::Left;
+    // --- Size Preset ---
+    StringSetting fSize(L"fontSizePreset");
+    int sizePt = 26;
+    if (fSize && wcscmp(fSize, L"small") == 0) sizePt = 18;
+    else if (fSize && wcscmp(fSize, L"large") == 0) sizePt = 32;
+    else if (fSize && wcscmp(fSize, L"extra_large") == 0) sizePt = 42;
+    else sizePt = 24; // medium
+    g.cfg.textPointSize = sizePt;
+
+    // --- Bubble Size Preset ---
+    StringSetting bSize(L"bubbleSize");
+    if (bSize && wcscmp(bSize, L"small") == 0) {
+        g.cfg.bubbleWidth = 300; g.cfg.bubbleHeight = 160; g.cfg.maxLines = 10; g.cfg.maxTextLen = 500;
+    } else if (bSize && wcscmp(bSize, L"large") == 0) {
+        g.cfg.bubbleWidth = 800; g.cfg.bubbleHeight = 400; g.cfg.maxLines = 40; g.cfg.maxTextLen = 2000;
+    } else if (bSize && wcscmp(bSize, L"huge") == 0) {
+        g.cfg.bubbleWidth = 1400; g.cfg.bubbleHeight = 800; g.cfg.maxLines = 80; g.cfg.maxTextLen = 4000;
+    } else { // medium
+        g.cfg.bubbleWidth = 500; g.cfg.bubbleHeight = 250; g.cfg.maxLines = 20; g.cfg.maxTextLen = 1000;
+    }
+
+    // --- Zoom Preset ---
+    g.cfg.zoomPercent = ClampInt(Wh_GetIntSetting(L"zoomLevel"), 150, 500);
+    if (g.cfg.zoomPercent == 0) g.cfg.zoomPercent = 250;
+
+    // --- Color Theme Presets ---
+    StringSetting theme(L"colorTheme");
+    
+    // Default Dark
+    g.cfg.backgroundColor = 0x141414;
+    g.cfg.textColor = 0xF5F5F5;
+    g.cfg.borderColor = 0x5A5A5A;
+    g.cfg.shadowColor = 0x000000;
+    
+    if (theme) {
+        if (wcscmp(theme, L"light") == 0) {
+            g.cfg.backgroundColor = 0xFFFFFF;
+            g.cfg.textColor = 0x000000;
+            g.cfg.borderColor = 0xCCCCCC;
+            g.cfg.shadowColor = 0xAAAAAA;
+        } else if (wcscmp(theme, L"high_contrast_black") == 0) {
+            g.cfg.backgroundColor = 0x000000;
+            g.cfg.textColor = 0xFFFFFF;
+            g.cfg.borderColor = 0xFFFFFF;
+            g.cfg.borderWidth = 2;
+            g.cfg.textShadow = false;
+        } else if (wcscmp(theme, L"high_contrast_white") == 0) {
+            g.cfg.backgroundColor = 0xFFFFFF;
+            g.cfg.textColor = 0x000000;
+            g.cfg.borderColor = 0x000000;
+            g.cfg.borderWidth = 2;
+            g.cfg.textShadow = false;
+        } else if (wcscmp(theme, L"sepia") == 0) {
+            g.cfg.backgroundColor = 0xF4ECD8;
+            g.cfg.textColor = 0x5F4B32;
+            g.cfg.borderColor = 0xD4C4A8;
+            g.cfg.shadowColor = 0xD4C4A8;
+        } else if (wcscmp(theme, L"custom") == 0) {
+            // Read advanced custom settings overrides
+             PCWSTR cFont = Wh_GetStringSetting(L"customFontName");
+             if (cFont && *cFont) g.cfg.fontName = cFont;
+             Wh_FreeStringSetting(cFont);
+
+             int cSize = Wh_GetIntSetting(L"customTextSize");
+             if (cSize > 0) g.cfg.textPointSize = ClampInt(cSize, 5, 200);
+
+             g.cfg.textColor = Wh_GetIntSetting(L"customTextColor");
+             g.cfg.backgroundColor = Wh_GetIntSetting(L"customBackgroundColor");
+             g.cfg.borderColor = Wh_GetIntSetting(L"customBorderColor");
+        }
+    }
 
     g.cfg.hideWhenNoText = Wh_GetIntSetting(L"hideWhenNoText") != 0;
     g.cfg.fallbackToMagnifier = Wh_GetIntSetting(L"fallbackToMagnifier") != 0;
 
-    g.cfg.zoomPercent = ClampInt(Wh_GetIntSetting(L"zoomPercent"), 100, 800);
-
-    g.cfg.bubbleWidth  = ClampInt(Wh_GetIntSetting(L"bubbleWidth"), 200, 2000);
-    g.cfg.bubbleHeight = ClampInt(Wh_GetIntSetting(L"bubbleHeight"), 80, 1200);
-    g.cfg.offsetX      = ClampInt(Wh_GetIntSetting(L"offsetX"), -800, 800);
-    g.cfg.offsetY      = ClampInt(Wh_GetIntSetting(L"offsetY"), -800, 800);
-
-    g.cfg.cornerRadius  = ClampInt(Wh_GetIntSetting(L"cornerRadius"), 0, 80);
-    g.cfg.borderWidth   = ClampInt(Wh_GetIntSetting(L"borderWidth"), 0, 16);
-    g.cfg.textPointSize = ClampInt(Wh_GetIntSetting(L"textPointSize"), 10, 120);
-    g.cfg.fontWeight    = ClampInt(Wh_GetIntSetting(L"fontWeight"), 100, 900);
-    g.cfg.textColor     = ClampInt(Wh_GetIntSetting(L"textColor"), 0x000000, 0xFFFFFF);
-    g.cfg.maxLines      = ClampInt(Wh_GetIntSetting(L"maxLines"), 1, 100);
-    g.cfg.textShadow    = Wh_GetIntSetting(L"textShadow") != 0;
-    g.cfg.shadowOffsetX = ClampInt(Wh_GetIntSetting(L"shadowOffsetX"), -10, 10);
-    g.cfg.shadowOffsetY = ClampInt(Wh_GetIntSetting(L"shadowOffsetY"), -10, 10);
-    g.cfg.shadowColor   = ClampInt(Wh_GetIntSetting(L"shadowColor"), 0x000000, 0xFFFFFF);
-    g.cfg.outlineWidth  = ClampInt(Wh_GetIntSetting(L"outlineWidth"), 0, 6);
-    g.cfg.outlineColor  = ClampInt(Wh_GetIntSetting(L"outlineColor"), 0x000000, 0xFFFFFF);
-    g.cfg.backgroundColor = ClampInt(Wh_GetIntSetting(L"backgroundColor"), 0x000000, 0xFFFFFF);
-    g.cfg.borderColor   = ClampInt(Wh_GetIntSetting(L"borderColor"), 0x000000, 0xFFFFFF);
-    g.cfg.padding       = ClampInt(Wh_GetIntSetting(L"padding"), 4, 120);
+    g.cfg.opacity = 245; // Fixed for simplicity
+    g.cfg.cornerRadius = 16;
+    g.cfg.padding = 18;
+    g.cfg.offsetX = 24; g.cfg.offsetY = 24;
 
     g.cfg.updateIntervalMs      = ClampInt(Wh_GetIntSetting(L"updateIntervalMs"), 8, 100);
-    g.cfg.uiaQueryMinIntervalMs = ClampInt(Wh_GetIntSetting(L"uiaQueryMinIntervalMs"), 20, 500);
-    g.cfg.maxTextLen            = ClampInt(Wh_GetIntSetting(L"maxTextLen"), 40, 16384);
+    g.cfg.uiaQueryMinIntervalMs = 60; // Fixed sensible default
 
-
-    g.cfg.opacity = ClampInt(Wh_GetIntSetting(L"opacity"), 40, 255);
-    g.cfg.autoHideDelayMs = ClampInt(Wh_GetIntSetting(L"autoHideDelayMs"), 0, 3000);
-
-    Wh_Log(L"Settings Loaded: Trigger=%d, Mode=%d, Opacity=%d, Font=%s", 
-        (int)g.cfg.triggerKey, (int)g.cfg.mode, g.cfg.opacity, g.cfg.fontName.c_str());
+    Wh_Log(L"Settings Loaded: Trigger=%d, Mode=%d, Theme=%s, Zoom=%d", 
+        (int)g.cfg.triggerKey, (int)g.cfg.mode, theme ? theme.value : L"default", g.cfg.zoomPercent);
 
     // Refresh graphics resources since settings (colors/fonts) changed
     // We need a valid DPI scale; if not set yet, guess 1.0 or wait until first paint.
