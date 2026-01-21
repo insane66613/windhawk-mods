@@ -70,7 +70,7 @@ Notes:
   $name: Show advanced appearance settings (Colors, Offsets, etc.)
   $description: These settings are hidden by default to keep things simple.
 
-- _sep1: 
+- _sep1: ""
   $name: "--- Advanced: Appearance ---"
 
 - fontName: Segoe UI
@@ -107,7 +107,7 @@ Notes:
 - maxLines: 20
   $name: Max lines to display
 
-- _sep2:
+- _sep2: ""
   $name: "--- Advanced: Behavior & Offsets ---"
 
 - hideWhenNoText: false
