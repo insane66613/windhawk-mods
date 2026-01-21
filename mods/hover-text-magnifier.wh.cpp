@@ -63,7 +63,7 @@ Notes:
 - bubbleWidth: 600
   $name: Max bubble width (px)
 
-- maxTextLen: 1000
+- maxTextLen: 4000
   $name: Max text length (chars)
 
 - zoomPercent: 250
@@ -107,7 +107,7 @@ Notes:
     - center: Center
     - right: Right
 
-- maxLines: 20
+- maxLines: 80
   $name: Max lines to display
 
 - _sep2: ""
@@ -287,6 +287,10 @@ struct RuntimeState {
 
     // Last committed window state
     RECT lastWindowRect = { 0, 0, 0, 0 };
+    // Cached Region state to prevent flicker
+    int lastRgnW = 0;
+    int lastRgnH = 0;
+    int lastRgnRadius = -1;
 
     // Cached Layout
     std::wstring cachedFittedText;
@@ -518,7 +522,7 @@ static void LoadSettings() {
     g.cfg.textPointSize = ClampInt(Wh_GetIntSetting(L"textPointSize"), 10, 120);
     g.cfg.fontWeight    = ClampInt(Wh_GetIntSetting(L"fontWeight"), 100, 900);
     g.cfg.textColor     = ClampInt(Wh_GetIntSetting(L"textColor"), 0x000000, 0xFFFFFF);
-    g.cfg.maxLines      = ClampInt(Wh_GetIntSetting(L"maxLines"), 1, 20);
+    g.cfg.maxLines      = ClampInt(Wh_GetIntSetting(L"maxLines"), 1, 100);
     g.cfg.textShadow    = Wh_GetIntSetting(L"textShadow") != 0;
     g.cfg.shadowOffsetX = ClampInt(Wh_GetIntSetting(L"shadowOffsetX"), -10, 10);
     g.cfg.shadowOffsetY = ClampInt(Wh_GetIntSetting(L"shadowOffsetY"), -10, 10);
@@ -531,7 +535,7 @@ static void LoadSettings() {
 
     g.cfg.updateIntervalMs      = ClampInt(Wh_GetIntSetting(L"updateIntervalMs"), 8, 100);
     g.cfg.uiaQueryMinIntervalMs = ClampInt(Wh_GetIntSetting(L"uiaQueryMinIntervalMs"), 20, 500);
-    g.cfg.maxTextLen            = ClampInt(Wh_GetIntSetting(L"maxTextLen"), 40, 2000);
+    g.cfg.maxTextLen            = ClampInt(Wh_GetIntSetting(L"maxTextLen"), 40, 16384);
 
 
     g.cfg.opacity = ClampInt(Wh_GetIntSetting(L"opacity"), 40, 255);
@@ -701,6 +705,13 @@ static RECT GetWorkAreaForPoint(POINT pt) {
 }
 
 static void ApplyRoundedRegion(HWND hwnd, int w, int h, int radius) {
+    if (w == g.lastRgnW && h == g.lastRgnH && radius == g.lastRgnRadius) {
+        return;
+    }
+    g.lastRgnW = w;
+    g.lastRgnH = h;
+    g.lastRgnRadius = radius;
+
     if (radius <= 0) {
         SetWindowRgn(hwnd, nullptr, TRUE);
         return;
