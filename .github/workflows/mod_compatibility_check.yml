@@ -32,7 +32,7 @@ jobs:
         #   - version: ${{ (github.event_name == 'pull_request' && github.event.pull_request.user.login != 'm417z') && '1.4.1' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -51,7 +51,7 @@ jobs:
           echo "Downloading $installer_url to $installer_path"
           curl -L "$installer_url" -o "$installer_path"
 
-          extract_path="${{ runner.temp }}\windhawk"
+          extract_path="${{ runner.temp }}/windhawk"
           echo "Extracting $installer_path to $extract_path"
           MSYS_NO_PATHCONV=1 "$installer_path" /S /PORTABLE "/D=$extract_path"
       - name: Get changed files
@@ -66,15 +66,20 @@ jobs:
           ALL_CHANGED_AND_MODIFIED_FILES: ${{ steps.changed-files.outputs.all_changed_and_modified_files }}
           ALL_CHANGED_AND_MODIFIED_FILES_COUNT: ${{ steps.changed-files.outputs.all_changed_and_modified_files_count }}
         run: |
-          a=ADDED_FILES_COUNT
-          b=MODIFIED_FILES_COUNT
-          c=ALL_CHANGED_AND_MODIFIED_FILES_COUNT
-          if [[ ( ($a -eq 0 && $b -eq 1) || ($a -eq 1 && $b -eq 0) ) && $c -eq 1 ]]; then
+          set -euo pipefail
+
+          a="${ADDED_FILES_COUNT:-0}"
+          b="${MODIFIED_FILES_COUNT:-0}"
+          c="${ALL_CHANGED_AND_MODIFIED_FILES_COUNT:-0}"
+
+          if (( ((a==0 && b==1) || (a==1 && b==0)) && c==1 )); then
             echo "Compiling $ALL_CHANGED_AND_MODIFIED_FILES"
-            windhawk_path="${{ runner.temp }}\windhawk"
+            windhawk_path="${{ runner.temp }}/windhawk"
             python -u scripts/compile_mod.py -w "$windhawk_path" \
               -f "$ALL_CHANGED_AND_MODIFIED_FILES" \
-              -o32 "${{ runner.temp }}\mod_32.dll" \
-              -o64 "${{ runner.temp }}\mod_64.dll" \
-              -oarm64 "${{ runner.temp }}\mod_arm64.dll"
+              -o32 "${{ runner.temp }}/mod_32.dll" \
+              -o64 "${{ runner.temp }}/mod_64.dll" \
+              -oarm64 "${{ runner.temp }}/mod_arm64.dll"
+          else
+            echo "Skipping compile (a=$a b=$b c=$c)"
           fi
