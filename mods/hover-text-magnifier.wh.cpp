@@ -1222,7 +1222,7 @@ static void TickUpdate() {
         if (textChanged || modeChanged) {
             InvalidateRect(g.hwndHost, nullptr, TRUE);
             UpdateWindow(g.hwndHost);
-            Wh_Log(L"Showing Text: %s", text.substr(0, std::min<size_t>(text.size(), 30)).c_str());
+            // Wh_Log(L"Showing Text: %s", text.substr(0, std::min<size_t>(text.size(), 30)).c_str());
         }
     } else if (showMag) {
         ShowWindow(g.hwndMag, SW_SHOWNA);
