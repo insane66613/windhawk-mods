@@ -1442,7 +1442,7 @@ BOOL Wh_ModInit() {
             CreateMutexW(nullptr, TRUE, L"windhawk-tool-mod_" WH_MOD_ID);
         if (!g_toolModProcessMutex) {
             Wh_Log(L"CreateMutex failed");
-            ExitProcess(1);
+            return FALSE;
         }
 
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -1465,13 +1465,13 @@ BOOL Wh_ModInit() {
                  // Wh_Log(L"Previous instance exited/abandoned mutex. Proceeding.");
             } else {
                  Wh_Log(L"Previous instance still running after timeout. Exiting new instance.");
-                 ExitProcess(1);
+                 return FALSE;
             }
         }
 
         if (!WhTool_ModInit()) {
             Wh_Log(L"WhTool_ModInit failed");
-            ExitProcess(1);
+            return FALSE;
         }
 
 
