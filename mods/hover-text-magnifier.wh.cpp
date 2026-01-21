@@ -154,6 +154,8 @@ Inspired by the macOS feature, it displays a high-contrast, large-text bubble fo
 
 #include <atomic>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <string>
 #include <algorithm>
 #include <cmath>
@@ -231,6 +233,17 @@ struct AppSettings {
 struct RuntimeState {
     std::atomic<bool> running{false};
     std::thread worker;
+    std::thread uiaThread;
+    
+    // Shared state between Worker and UIA Thread
+    std::mutex uiaMutex;
+    std::condition_variable uiaCv;
+    bool uiaThreadShouldExit = false;
+    bool uiaWorkAvailable = false;
+    POINT uiaTargetPt = {0,0};
+    std::wstring uiaResultText;
+    bool uiaResultValid = false;
+
     DWORD threadId = 0;
 
     HHOOK hKeyboardHook = nullptr;
@@ -242,9 +255,9 @@ struct RuntimeState {
     HMODULE hMagnification = nullptr;
     bool magReady = false;
 
+    // uia is now owned by uiaThread, do not access from worker thread!
     IUIAutomation* uia = nullptr;
     bool uiaReady = false;
-
     bool comInitedHere = false;
 
     POINT lastCursor{ -1, -1 };
@@ -1038,6 +1051,43 @@ static LRESULT CALLBACK HostWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
+static void UiaWorkerThread() {
+    // Wh_Log(L"UiaWorkerThread: Started");
+    
+    // Separate COM init for this thread
+    if (!InitUIA()) {
+        Wh_Log(L"UiaWorkerThread: InitUIA failed.");
+        // We continue running to process exit signals, but we won't get text.
+    }
+
+    while (true) {
+        std::unique_lock<std::mutex> lock(g.uiaMutex);
+        g.uiaCv.wait(lock, []{ return g.uiaThreadShouldExit || g.uiaWorkAvailable; });
+
+        if (g.uiaThreadShouldExit) break;
+
+        POINT targetPt = g.uiaTargetPt;
+        g.uiaWorkAvailable = false;
+        lock.unlock();
+
+        // Perform potentially blocking UIA call without holding mutex
+        std::wstring text;
+        bool success = TryExtractTextAtPoint(targetPt, text);
+
+        lock.lock();
+        if (success) {
+            g.uiaResultText = text;
+            g.uiaResultValid = true;
+        } else {
+            g.uiaResultValid = false;
+        }
+        lock.unlock();
+    }
+
+    UninitUIA();
+    // Wh_Log(L"UiaWorkerThread: Exited");
+}
+
 static bool CreateWindows() {
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -1156,31 +1206,43 @@ static void TickUpdate() {
     bool haveText = false;
     std::wstring text;
 
-    if (wantText && g.uiaReady) {
+    if (wantText) {
         if (nowTick - g.lastUiaQueryTick >= (DWORD)g.cfg.uiaQueryMinIntervalMs) {
             g.lastUiaQueryTick = nowTick;
-            haveText = TryExtractTextAtPoint(pt, text);
-            static bool dbgLoggedNoText = false;
+            
+            // Dispatch work to UIA thread
+            {
+                std::lock_guard<std::mutex> lock(g.uiaMutex);
+                g.uiaTargetPt = pt;
+                g.uiaWorkAvailable = true;
+            }
+            g.uiaCv.notify_one();
+        }
+        
+        // Retrieve latest result
+        {
+            std::lock_guard<std::mutex> lock(g.uiaMutex);
+            if (g.uiaResultValid) {
+                text = g.uiaResultText;
+                haveText = true;
+                g.lastValidTextTick = nowTick;
+            }
+        }
 
-            if (haveText) {
-                g.lastValidTextTick = nowTick; // Update validity timestamp
-                dbgLoggedNoText = false;
-            } else {
-                // Hysteresis: If we lost text, check if we should debounce
-                // (Only if we were previously showing text)
-                if (g.showingText && !g.currentText.empty() && 
-                    (nowTick - g.lastValidTextTick < 300)) // 300ms grace period
-                {
-                    haveText = true;
-                    text = g.currentText;
-                } else if (!dbgLoggedNoText && triggerDown) {
-                    // Wh_Log(L"TickUpdate: No text found via UIA.");
-                    dbgLoggedNoText = true;
-                }
+        static bool dbgLoggedNoText = false;
+        if (!haveText) {
+             // Hysteresis: If we lost text, check if we should debounce
+            if (g.showingText && !g.currentText.empty() && 
+                (nowTick - g.lastValidTextTick < 300)) // 300ms grace period
+            {
+                haveText = true;
+                text = g.currentText;
+            } else if (!dbgLoggedNoText && triggerDown) {
+                // Wh_Log(L"TickUpdate: No text found via UIA.");
+                dbgLoggedNoText = true;
             }
         } else {
-            haveText = g.showingText && !g.currentText.empty();
-            text = g.currentText;
+            dbgLoggedNoText = false;
         }
     }
 
@@ -1274,11 +1336,9 @@ static void WorkerThread() {
     } else {
         UninstallHooks();
     }
-
-    if (!InitUIA()) {
-        Wh_Log(L"WorkerThread: InitUIA failed (or RPC_E_CHANGED_MODE). Text extraction may fail.");
-    }
     
+    // InitUIA moved to UiaWorkerThread
+
     if (!InitMagnification()) {
         Wh_Log(L"WorkerThread: InitMagnification failed. Magnifier mode will not work.");
     }
@@ -1287,13 +1347,15 @@ static void WorkerThread() {
         Wh_Log(L"WorkerThread: CreateWindows failed. Exiting.");
         // g.running = false;
         UninitMagnification();
-        UninitUIA();
+        // UninitUIA();
         return;
     }
     // Wh_Log(L"WorkerThread: Window created. HWNDHost=%p", g.hwndHost);
 
-    // Wh_Log(L"WorkerThread: Initialization complete. Entering message loop.");
     g.running = true;
+    
+    // Start separate UIA/Text thread
+    g.uiaThread = std::thread(UiaWorkerThread);
 
     while (g.running) {
         MsgWaitForMultipleObjectsEx(
@@ -1328,9 +1390,21 @@ static void WorkerThread() {
 
     UninstallHooks();
 
+    // Signal UIA thread to exit
+    {
+        std::lock_guard<std::mutex> lock(g.uiaMutex);
+        g.uiaThreadShouldExit = true;
+    }
+    g.uiaCv.notify_all();
+
+    if (g.uiaThread.joinable()) {
+        g.uiaThread.join();
+    }
+
     FreeGraphicsResources();
     UninitMagnification();
-    UninitUIA();
+    // UIA uninit moved to thread
+    // UninitUIA();
 
 }
 
