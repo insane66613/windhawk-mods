@@ -47,53 +47,20 @@ versions check out [7+ Taskbar Tweaker](https://tweaker.ramensoftware.com/).
 // ==WindhawkModSettings==
 /*
 - notificationIconWidth: 24
-  $name: Tray icon width
-  $description: 'Windows 11 default: 32'
+  $name: Notification icon width
 - notificationIconRows: 1
-  $name: Tray icon rows
-  $description: >-
-    Allows having a grid of tray icons
+  $name: Notification icon rows
 - gridArrangement: rowFirstLeftToRight
   $name: Grid arrangement
-  $description: >-
-    The order in which tray icons are arranged when using multiple rows.
-    Row-first fills each row before moving to the next.
-    Column-first fills each column before moving to the next.
-    Examples with icons A-G and 2 rows:
-
-      Row-first, left-to-right:
-        A B C D
-        E F G
-
-      Column-first, top-to-bottom:
-        A C E G
-        B D F
-
-      Row-first, bottom row first:
-        E F G
-        A B C D
-
-      Column-first, bottom-to-top:
-        B D F
-        A C E G
   $options:
-  - rowFirstLeftToRight: Row-first, left-to-right
-  - columnFirstTopToBottom: Column-first, top-to-bottom
+  - rowFirstLeftToRight: Row-first, left to right
+  - columnFirstTopToBottom: Column-first, top to bottom
   - rowFirstBottomRowFirst: Row-first, bottom row first
-  - columnFirstBottomToTop: Column-first, bottom-to-top
+  - columnFirstBottomToTop: Column-first, bottom to top
 - overflowIconWidth: 32
-  $name: Tray overflow icon width
-  $description: >-
-    The width of icons that appear in the overflow popup when clicking on the
-    chevron icon
-
-    Windows 11 default: 40
+  $name: Overflow icon width
 - overflowIconsPerRow: 5
-  $name: Tray overflow icons per row
-  $description: >-
-    The maximum amount of icons per row in the overflow popup
-
-    Windows 11 default: 5
+  $name: Overflow icons per row
 */
 // ==/WindhawkModSettings==
 
@@ -127,7 +94,7 @@ struct {
     int overflowIconsPerRow;
 } g_settings;
 
-std::atomic<bool> g_taskbarViewDllLoaded;
+std::atomic<bool> g_systemTrayModuleHooked;
 std::atomic<bool> g_unloading;
 
 using FrameworkElementLoadedEventRevoker = winrt::impl::event_revoker<
@@ -966,8 +933,10 @@ void ApplySettings() {
         &param);
 }
 
-bool HookTaskbarViewDllSymbols(HMODULE module) {
-    // Taskbar.View.dll
+bool HookSystemTraySymbols(HMODULE module) {
+    // Symbols live in SystemTray.dll on Win11 26200+, in Taskbar.View.dll
+    // (or ExplorerExtensions.dll) on older builds. Names are identical in
+    // both DLLs, so the same SYMBOL_HOOK array works for either module.
     WindhawkUtils::SYMBOL_HOOK symbolHooks[] = {
         {
             {LR"(public: __cdecl winrt::SystemTray::implementation::IconView::IconView(void))"},
@@ -989,21 +958,27 @@ bool HookTaskbarViewDllSymbols(HMODULE module) {
     return HookSymbols(module, symbolHooks, ARRAYSIZE(symbolHooks));
 }
 
-HMODULE GetTaskbarViewModuleHandle() {
-    HMODULE module = GetModuleHandle(L"Taskbar.View.dll");
+// Returns the module that hosts winrt::SystemTray::* in the current build.
+// Order matters: SystemTray.dll is the new home (Win11 Insider 26200+);
+// Taskbar.View.dll and ExplorerExtensions.dll are kept as fallbacks so this
+// fork still works on older builds.
+HMODULE GetSystemTrayModuleHandle() {
+    HMODULE module = GetModuleHandle(L"SystemTray.dll");
+    if (!module) {
+        module = GetModuleHandle(L"Taskbar.View.dll");
+    }
     if (!module) {
         module = GetModuleHandle(L"ExplorerExtensions.dll");
     }
-
     return module;
 }
 
-void HandleLoadedModuleIfTaskbarView(HMODULE module, LPCWSTR lpLibFileName) {
-    if (!g_taskbarViewDllLoaded && GetTaskbarViewModuleHandle() == module &&
-        !g_taskbarViewDllLoaded.exchange(true)) {
+void HandleLoadedModuleIfSystemTray(HMODULE module, LPCWSTR lpLibFileName) {
+    if (!g_systemTrayModuleHooked && GetSystemTrayModuleHandle() == module &&
+        !g_systemTrayModuleHooked.exchange(true)) {
         Wh_Log(L"Loaded %s", lpLibFileName);
 
-        if (HookTaskbarViewDllSymbols(module)) {
+        if (HookSystemTraySymbols(module)) {
             Wh_ApplyHookOperations();
         }
     }
@@ -1016,7 +991,7 @@ HMODULE WINAPI LoadLibraryExW_Hook(LPCWSTR lpLibFileName,
                                    DWORD dwFlags) {
     HMODULE module = LoadLibraryExW_Original(lpLibFileName, hFile, dwFlags);
     if (module) {
-        HandleLoadedModuleIfTaskbarView(module, lpLibFileName);
+        HandleLoadedModuleIfSystemTray(module, lpLibFileName);
     }
 
     return module;
@@ -1057,13 +1032,13 @@ BOOL Wh_ModInit() {
 
     LoadSettings();
 
-    if (HMODULE taskbarViewModule = GetTaskbarViewModuleHandle()) {
-        g_taskbarViewDllLoaded = true;
-        if (!HookTaskbarViewDllSymbols(taskbarViewModule)) {
+    if (HMODULE systemTrayModule = GetSystemTrayModuleHandle()) {
+        g_systemTrayModuleHooked = true;
+        if (!HookSystemTraySymbols(systemTrayModule)) {
             return FALSE;
         }
     } else {
-        Wh_Log(L"Taskbar view module not loaded yet");
+        Wh_Log(L"System tray module not loaded yet");
 
         HMODULE kernelBaseModule = GetModuleHandle(L"kernelbase.dll");
         auto pKernelBaseLoadLibraryExW =
@@ -1084,12 +1059,12 @@ BOOL Wh_ModInit() {
 void Wh_ModAfterInit() {
     Wh_Log(L">");
 
-    if (!g_taskbarViewDllLoaded) {
-        if (HMODULE taskbarViewModule = GetTaskbarViewModuleHandle()) {
-            if (!g_taskbarViewDllLoaded.exchange(true)) {
-                Wh_Log(L"Got Taskbar.View.dll");
+    if (!g_systemTrayModuleHooked) {
+        if (HMODULE systemTrayModule = GetSystemTrayModuleHandle()) {
+            if (!g_systemTrayModuleHooked.exchange(true)) {
+                Wh_Log(L"Got system tray module");
 
-                if (HookTaskbarViewDllSymbols(taskbarViewModule)) {
+                if (HookSystemTraySymbols(systemTrayModule)) {
                     Wh_ApplyHookOperations();
                 }
             }
