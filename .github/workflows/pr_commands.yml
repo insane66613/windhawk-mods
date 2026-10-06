@@ -23,6 +23,10 @@ jobs:
       (contains(github.event.comment.body, '/ai-review') ||
        contains(github.event.comment.body, '/ready-for-reviewer'))
     runs-on: ubuntu-latest
+    env:
+      # Forks don't inherit the upstream GitHub App private key. Keep it in an
+      # environment variable so app-dependent steps can be skipped cleanly.
+      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -31,14 +35,16 @@ jobs:
           sparse-checkout: .github
 
       - name: Generate an app token
+        if: env.BOT_APP_PRIVATE_KEY != ''
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
           # The windhawk-reviewer app.
           app-id: '4425681'
-          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          private-key: ${{ env.BOT_APP_PRIVATE_KEY }}
 
       - name: Run the command
+        if: env.BOT_APP_PRIVATE_KEY != ''
         uses: actions/github-script@v9
         env:
           BOT_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
@@ -55,3 +61,7 @@ jobs:
               core,
               botLogin: process.env.BOT_LOGIN,
             });
+
+      - name: Skip reviewer flow without app credentials
+        if: env.BOT_APP_PRIVATE_KEY == ''
+        run: echo "Skipping PR flow commands because BOT_APP_PRIVATE_KEY is not configured in this fork."
