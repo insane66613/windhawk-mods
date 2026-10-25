@@ -105,6 +105,17 @@ std::atomic<bool> g_explorerPatcherInitialized;
 std::mutex g_initMutex;
 std::mutex g_hookMutex;
 
+// Hold the explicit LoadLibraryEx reference until the mod is unloaded.
+// Windows 10 uses GetModuleHandle (borrowed), which must never be freed.
+HMODULE g_taskbarModule = nullptr;
+
+void ReleaseTaskbarModule() {
+    if (g_taskbarModule) {
+        FreeLibrary(g_taskbarModule);
+        g_taskbarModule = nullptr;
+    }
+}
+
 struct TaskBtnGroupButtonInfo {
     void* taskBtnGroup;
     int buttonIndex;
@@ -722,8 +733,11 @@ bool HookTaskbarSymbols() {
 
         if (!HookSymbols(taskbarModule, symbolHooks, ARRAYSIZE(symbolHooks))) {
             Wh_Log(L"HookSymbols failed");
+            FreeLibrary(taskbarModule);
             return false;
         }
+
+        g_taskbarModule = taskbarModule;
     }
 
     return true;
@@ -776,6 +790,7 @@ BOOL Wh_ModInit() {
 
     if (!HandleLoadedExplorerPatcher()) {
         Wh_Log(L"HandleLoadedExplorerPatcher failed");
+        ReleaseTaskbarModule();
         return FALSE;
     }
 
@@ -803,6 +818,7 @@ void Wh_ModAfterInit() {
 
 void Wh_ModUninit() {
     Wh_Log(L">");
+    ReleaseTaskbarModule();
 }
 
 BOOL Wh_ModSettingsChanged(BOOL* bReload) {
