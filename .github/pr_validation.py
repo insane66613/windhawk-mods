@@ -165,8 +165,10 @@ def get_mod_file_metadata(
 
 @cache
 def get_mod_author_data():
-    url = 'https://mods.windhawk.net/mod_author_data.json'
-    response = urllib.request.urlopen(url).read()
+    # Mirror the official catalogue's canonical author data source. The former
+    # mods.windhawk.net endpoint returns HTTP 403 in GitHub Actions runners.
+    url = 'https://raw.githubusercontent.com/ramensoftware/windhawk-mods/refs/heads/pages/mod_author_data.json'
+    response = urllib.request.urlopen(url, timeout=20).read()
     return json.loads(response)
 
 
