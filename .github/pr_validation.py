@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from functools import cache
 from io import StringIO
@@ -165,8 +166,10 @@ def get_mod_file_metadata(
 
 @cache
 def get_mod_author_data():
-    url = 'https://mods.windhawk.net/mod_author_data.json'
-    response = urllib.request.urlopen(url).read()
+    # Mirror the official catalogue's canonical author data source. The former
+    # mods.windhawk.net endpoint returns HTTP 403 in GitHub Actions runners.
+    url = 'https://raw.githubusercontent.com/ramensoftware/windhawk-mods/refs/heads/pages/mod_author_data.json'
+    response = urllib.request.urlopen(url, timeout=20).read()
     return json.loads(response)
 
 
@@ -184,10 +187,11 @@ def is_valid_license_identifier(license_id: str):
 
 @cache
 def get_existing_mod_metadata(mod_id: str) -> Optional[dict]:
-    """Fetch existing mod metadata from mods.windhawk.net, or None if mod doesn't exist."""
+    """Fetch published mod metadata from the official Windhawk catalogue."""
     try:
-        url = f'https://mods.windhawk.net/mods/{mod_id}.wh.cpp'
-        response = urllib.request.urlopen(url)
+        url = (f'https://raw.githubusercontent.com/ramensoftware/windhawk-mods/'
+               f'refs/heads/pages/mods/{urllib.parse.quote(mod_id, safe='')}.wh.cpp')
+        response = urllib.request.urlopen(url, timeout=20)
         content = response.read().decode('utf-8')
 
         # Use existing robust metadata parser (no warnings needed for existing mods)
@@ -211,8 +215,9 @@ def get_existing_mod_metadata(mod_id: str) -> Optional[dict]:
 def get_existing_mod_versions(mod_id: str) -> Optional[list[str]]:
     """Fetch list of existing versions for a mod, or None if mod doesn't exist."""
     try:
-        url = f'https://mods.windhawk.net/mods/{mod_id}/versions.json'
-        response = urllib.request.urlopen(url)
+        url = (f'https://raw.githubusercontent.com/ramensoftware/windhawk-mods/'
+               f'refs/heads/pages/mods/{urllib.parse.quote(mod_id, safe='')}/versions.json')
+        response = urllib.request.urlopen(url, timeout=20)
         data = json.loads(response.read())
         return [item['version'] for item in data]
     except urllib.error.HTTPError as e:
