@@ -14,6 +14,8 @@
 
 // ==WindhawkModReadme==
 /*
+![Hover Text Magnifier](https://raw.githubusercontent.com/insane66613/windhawk-mods/pr/hover-text-magnifier/images/hover-text-magnifier.png)
+
 **Hover Text Magnifier** is a powerful accessibility tool designed to make reading small text effortless, especially on large displays, TVs, or high-DPI monitors where you might sit at a distance.
 
 Inspired by the macOS feature, it displays a high-contrast, large-text bubble for whatever is under your mouse cursor. Unlike standard magnifiers that zoom the entire screen and require constant panning, this tool intelligently extracts the *text itself* and renders it clearly in a dedicated overlay.
